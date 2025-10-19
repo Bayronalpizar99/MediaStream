@@ -1,9 +1,10 @@
-import {ERROR_MESSAGES} from './error.constants';
-import {ENV_VARIABLES, VALID_NODE_ENVS} from './env.constants';
+import {ERROR_MESSAGES, AUTH_ERROR_MESSAGES, AUTH_MESSAGES} from './message.constants';
+import {ENV_VARIABLES, VALID_NODE_ENVS, getEnvVar} from './env.constants';
 import {LOG_FORMATS} from './log.constants';
 import {STRINGS} from './strings.constants';
 import {API_INFO} from './infoApi.constants';
 import {HEALTH_CONSTANTS} from './health.constants';
+import {COLLECTIONS_NAMES, COLLECTIONS_FIELDS} from "./collections.constants";
 
 export {
   ERROR_MESSAGES,
@@ -12,5 +13,10 @@ export {
   API_INFO,
   STRINGS,
   LOG_FORMATS,
-  HEALTH_CONSTANTS
+  HEALTH_CONSTANTS,
+  getEnvVar,
+  AUTH_ERROR_MESSAGES,
+  COLLECTIONS_NAMES,
+  COLLECTIONS_FIELDS,
+  AUTH_MESSAGES,
 };

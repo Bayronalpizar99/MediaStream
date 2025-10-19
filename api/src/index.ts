@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
-import { healthRouter } from './routes/health';
+import { healthRouter, authRouter } from './routes';
 import { 
   ERROR_MESSAGES, 
   ENV_VARIABLES, 
@@ -31,6 +31,7 @@ app.use(morgan(NODE_ENV === VALID_NODE_ENVS.PRODUCTION ? LOG_FORMATS.PRODUCTION 
 
 
 app.use('/health', healthRouter);
+app.use('/auth', authRouter);
 
 app.get('/', (_req, res) => {
   res.json({
