@@ -9,7 +9,7 @@ import {
     AUTH_MESSAGES,
 } from '../constants';
 import db from '../config';
-import {hashPassword} from "../security";
+import {hashPassword, verifyPassword} from "../security";
 
 
 
@@ -53,3 +53,38 @@ authRouter.post('/register', async (req, res) => {
 }
 
 });
+
+
+authRouter.post('/login', async (req, res) => {
+    const {email, password} = req.body;
+    if (!email) {
+        return res.status(400).send({message:AUTH_ERROR_MESSAGES.EMAIL_IS_REQUIRED});
+    } else if (!password) {
+        return res.status(400).send({message:AUTH_ERROR_MESSAGES.PASSWORD_IS_REQUIRED});
+    }
+
+    const userSnapshot = await  db.db.collection(COLLECTIONS_NAMES.USERS).
+    where(COLLECTIONS_FIELDS.EMAIL, '==', email).
+    get();
+
+
+    if (userSnapshot.empty) {
+        return res.status(404).send({message: AUTH_ERROR_MESSAGES.INVALID_CREDENTIALS})
+    }
+
+    const userDoc = userSnapshot.docs[0];
+    const userData = userDoc.data();
+
+
+    const isMatch = await verifyPassword(password, userData.password);
+
+    if (!isMatch) {
+        return res.status(401).send({ message: AUTH_ERROR_MESSAGES.INVALID_CREDENTIALS });
+    }
+
+    res.status(200).send({ message: AUTH_MESSAGES.USER_LOGGED, userId: userDoc.id });
+
+
+
+
+})
