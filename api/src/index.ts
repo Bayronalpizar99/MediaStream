@@ -23,6 +23,8 @@ const corsOrigins = (process.env.CORS_ORIGIN || STRINGS.EMPTY_STRING).split(STRI
 app.use(cors({
   origin: corsOrigins.length > 0 ? corsOrigins : true,
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 app.use(express.json());
