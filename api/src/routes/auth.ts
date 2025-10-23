@@ -1,7 +1,5 @@
 import { Router } from 'express';
 import {
-    ENV_VARIABLES,
-    getEnvVar,
     AUTH_ERROR_MESSAGES,
     ERROR_MESSAGES,
     COLLECTIONS_NAMES,
