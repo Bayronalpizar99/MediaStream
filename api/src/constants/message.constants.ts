@@ -16,7 +16,7 @@ export const AUTH_ERROR_MESSAGES = {
 };
 
 export const AUTH_MESSAGES = {
-  USER_CRETED: 'User created',
+  USER_CREATED: 'User created',
   USER_UPDATED: 'User updated',
   USER_LOGGED: 'User logged in',
 }

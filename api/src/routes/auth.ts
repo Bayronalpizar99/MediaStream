@@ -7,11 +7,12 @@ import {
     COLLECTIONS_NAMES,
     COLLECTIONS_FIELDS,
     AUTH_MESSAGES,
-} from '../constants';
-import db from '../config';
-import {hashPassword, verifyPassword} from "../security";
-
-
+    HttpErrorStatusCodes,
+    HttpSuccessStatusCodes,
+    HttpRedirectionStatusCodes
+} from '../constants/';
+import db from '../config/';
+import {hashPassword, verifyPassword} from "../security/";
 
 export const authRouter = Router();
 
@@ -19,19 +20,19 @@ authRouter.post('/register', async (req, res) => {
     try {
     const {email, password, username } = req.body;
     if (!email) {
-        return res.status(400).send({message: AUTH_ERROR_MESSAGES.EMAIL_IS_REQUIRED});
+        return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({message: AUTH_ERROR_MESSAGES.EMAIL_IS_REQUIRED});
     } else if (!password) {
-        return res.status(400).send({message: AUTH_ERROR_MESSAGES.PASSWORD_IS_REQUIRED});
+        return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({message: AUTH_ERROR_MESSAGES.PASSWORD_IS_REQUIRED});
     }
 
     const emailSnapshot = await db.db.collection(COLLECTIONS_NAMES.USERS).where(COLLECTIONS_FIELDS.EMAIL, '==', email).get();
     if (!emailSnapshot.empty) {
-        return res.status(400).send({ message: AUTH_ERROR_MESSAGES.EMAIL_ALREADY_IN_USE });
+        return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({ message: AUTH_ERROR_MESSAGES.EMAIL_ALREADY_IN_USE });
     }
 
     const usernameSnapshot = await db.db.collection(COLLECTIONS_NAMES.USERS).where(COLLECTIONS_FIELDS.USERNAME, '==', username).get();
     if (!usernameSnapshot.empty) {
-        return res.status(400).send({ message: AUTH_ERROR_MESSAGES.USERNAME_ALREADY_IN_USE });
+        return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({ message: AUTH_ERROR_MESSAGES.USERNAME_ALREADY_IN_USE });
     }
 
 
@@ -45,11 +46,11 @@ authRouter.post('/register', async (req, res) => {
         createdAt: new Date()
     });
 
-    res.status(201).send({ message: AUTH_MESSAGES.USER_CRETED, id: userRef.id });
+    res.status(HttpSuccessStatusCodes.CREATED).send({ message: AUTH_MESSAGES.USER_CREATED, id: userRef.id });
 
 } catch (error) {
     console.error(error);
-    res.status(500).send({ message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+    res.status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR).send({ message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
 }
 
 });
@@ -58,9 +59,9 @@ authRouter.post('/register', async (req, res) => {
 authRouter.post('/login', async (req, res) => {
     const {email, password} = req.body;
     if (!email) {
-        return res.status(400).send({message:AUTH_ERROR_MESSAGES.EMAIL_IS_REQUIRED});
+        return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({message:AUTH_ERROR_MESSAGES.EMAIL_IS_REQUIRED});
     } else if (!password) {
-        return res.status(400).send({message:AUTH_ERROR_MESSAGES.PASSWORD_IS_REQUIRED});
+        return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({message:AUTH_ERROR_MESSAGES.PASSWORD_IS_REQUIRED});
     }
 
     const userSnapshot = await  db.db.collection(COLLECTIONS_NAMES.USERS).
@@ -69,7 +70,7 @@ authRouter.post('/login', async (req, res) => {
 
 
     if (userSnapshot.empty) {
-        return res.status(404).send({message: AUTH_ERROR_MESSAGES.INVALID_CREDENTIALS})
+        return res.status(HttpErrorStatusCodes.NOT_FOUND).send({message: AUTH_ERROR_MESSAGES.INVALID_CREDENTIALS})
     }
 
     const userDoc = userSnapshot.docs[0];
@@ -79,12 +80,9 @@ authRouter.post('/login', async (req, res) => {
     const isMatch = await verifyPassword(password, userData.password);
 
     if (!isMatch) {
-        return res.status(401).send({ message: AUTH_ERROR_MESSAGES.INVALID_CREDENTIALS });
+        return res.status(HttpErrorStatusCodes.FORBIDDEN).send({ message: AUTH_ERROR_MESSAGES.INVALID_CREDENTIALS });
     }
 
-    res.status(200).send({ message: AUTH_MESSAGES.USER_LOGGED, userId: userDoc.id });
-
-
-
+    res.status(HttpSuccessStatusCodes.OK).send({ message: AUTH_MESSAGES.USER_LOGGED, userId: userDoc.id });
 
 })
