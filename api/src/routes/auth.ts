@@ -9,7 +9,7 @@ import {
     AUTH_MESSAGES,
     HttpErrorStatusCodes,
     HttpSuccessStatusCodes,
-    HttpRedirectionStatusCodes
+    INDEXES
 } from '../constants/';
 import db from '../config/';
 import {hashPassword, verifyPassword} from "../security/";
@@ -73,7 +73,7 @@ authRouter.post('/login', async (req, res) => {
         return res.status(HttpErrorStatusCodes.NOT_FOUND).send({message: AUTH_ERROR_MESSAGES.INVALID_CREDENTIALS})
     }
 
-    const userDoc = userSnapshot.docs[0];
+    const userDoc = userSnapshot.docs[INDEXES.ZERO];
     const userData = userDoc.data();
 
 
