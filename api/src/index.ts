@@ -9,7 +9,10 @@ import {
   VALID_NODE_ENVS,
   LOG_FORMATS,
   STRINGS,
-  API_INFO
+  API_INFO,
+  CORS_CONFIG,
+  NUMBERS,
+  HttpErrorStatusCodes
 } from './constants';
 
 const app = express();
@@ -21,10 +24,10 @@ const NODE_ENV = process.env.NODE_ENV;
 const corsOrigins = (process.env.CORS_ORIGIN || STRINGS.EMPTY_STRING).split(STRINGS.COMMA).map((o) => o.trim()).filter(Boolean);
 
 app.use(cors({
-  origin: corsOrigins.length > 0 ? corsOrigins : true,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: corsOrigins.length > NUMBERS.ZERO ? corsOrigins : true,
+  credentials: CORS_CONFIG.CREDENTIALS,
+  methods: CORS_CONFIG.METHODS,
+  allowedHeaders: CORS_CONFIG.ALLOWED_HEADERS,
 }));
 
 app.use(express.json());
@@ -52,7 +55,7 @@ app.use((req, res, _next) => {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(`${ERROR_MESSAGES.UNHANDLED_ERROR}:`, err);
-  res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+  res.status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
 });
 
 app.listen(PORT, () => {

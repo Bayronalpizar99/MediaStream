@@ -18,7 +18,13 @@ import {
   HttpRedirectionStatusCodes, 
   HttpSuccessStatusCodes
 } from './httpCodes.constants';
-import {INDEXES} from './numbers.constants';
+import {INDEXES, NUMBERS} from './numbers.constants';
+import {
+  HTTP_METHODS,
+  HTTP_HEADERS,
+  CORS_CONFIG,
+  CONTENT_TYPES
+} from './http.constants';
 
 export {
   ERROR_MESSAGES,
@@ -36,5 +42,10 @@ export {
   HttpErrorStatusCodes,
   HttpSuccessStatusCodes,
   HttpRedirectionStatusCodes,
-  INDEXES
+  INDEXES,
+  NUMBERS,
+  HTTP_METHODS,
+  HTTP_HEADERS,
+  CORS_CONFIG,
+  CONTENT_TYPES
 };
