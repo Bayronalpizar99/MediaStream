@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LoginPage } from './components/LoginPage';
 import { MediaPlayer } from './components/MediaPlayer';
 import { FileConverter } from './components/FileConverter';
@@ -8,20 +8,50 @@ import { UserSessions } from './components/UserSessions';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Button } from './components/ui/button';
 import { Music, Video, RefreshCw, Share2, Server, Users, LogOut } from 'lucide-react';
+import { authService } from './services/authService';
+
+interface User {
+  email: string;
+  username: string;
+  id: string;
+}
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [currentUser, setCurrentUser] = useState('');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const handleLogin = (username: string) => {
-    setCurrentUser(username);
+  // Restore session on mount
+  useEffect(() => {
+    const session = authService.getSession();
+    if (session?.user) {
+      setCurrentUser(session.user);
+      setIsLoggedIn(true);
+    }
+    setIsLoading(false);
+  }, []);
+
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
     setIsLoggedIn(true);
   };
 
   const handleLogout = () => {
+    authService.clearSession();
     setIsLoggedIn(false);
-    setCurrentUser('');
+    setCurrentUser(null);
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Music className="w-8 h-8 text-purple-600 mx-auto mb-4 animate-spin" />
+          <p className="text-gray-600">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isLoggedIn) {
     return <LoginPage onLogin={handleLogin} />;
@@ -46,7 +76,7 @@ export default function App() {
             <div className="flex items-center gap-4">
               <div className="text-right">
                 <p className="text-sm">Bienvenido,</p>
-                <p>{currentUser}</p>
+                <p>{currentUser?.username || currentUser?.email}</p>
               </div>
               <Button variant="outline" onClick={handleLogout}>
                 <LogOut className="w-4 h-4 mr-2" />
