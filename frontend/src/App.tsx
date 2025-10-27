@@ -9,29 +9,28 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Button } from './components/ui/button';
 import { Music, Video, RefreshCw, Share2, Server, Users, LogOut } from 'lucide-react';
 import { authService } from './services/authService';
-
-interface User {
-  email: string;
-  username: string;
-  id: string;
-}
+import { AuthUser } from './models';
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Restore session on mount
   useEffect(() => {
     const session = authService.getSession();
     if (session?.user) {
-      setCurrentUser(session.user);
+      const storedUser = session.user;
+      setCurrentUser({
+        ...storedUser,
+        role: storedUser.role ?? 'user',
+      });
       setIsLoggedIn(true);
     }
     setIsLoading(false);
   }, []);
 
-  const handleLogin = (user: User) => {
+  const handleLogin = (user: AuthUser) => {
     setCurrentUser(user);
     setIsLoggedIn(true);
   };
@@ -57,6 +56,8 @@ export default function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  const isAdmin = currentUser?.role === 'admin';
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -77,6 +78,11 @@ export default function App() {
               <div className="text-right">
                 <p className="text-sm">Bienvenido,</p>
                 <p>{currentUser?.username || currentUser?.email}</p>
+                {currentUser?.role && (
+                  <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium uppercase tracking-wide ${isAdmin ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                    Rol: {currentUser.role}
+                  </span>
+                )}
               </div>
               <Button variant="outline" onClick={handleLogout}>
                 <LogOut className="w-4 h-4 mr-2" />
@@ -89,8 +95,15 @@ export default function App() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
+        <div className={`mb-6 rounded-lg border px-4 py-3 text-sm ${isAdmin ? 'border-purple-200 bg-purple-50 text-purple-800' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>
+          {isAdmin ? (
+            <span>Estás en el panel de administradores. Tienes acceso a la gestión de nodos y sesiones, además de todas las herramientas multimedia.</span>
+          ) : (
+            <span>Estás en el panel de usuarios. Disfruta del reproductor, conversión y compartición de archivos.</span>
+          )}
+        </div>
         <Tabs defaultValue="player" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
+          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-5' : 'grid-cols-3'} lg:w-auto lg:inline-grid`}>
             <TabsTrigger value="player" className="flex items-center gap-2">
               <Music className="w-4 h-4" />
               <span className="hidden sm:inline">Reproductor</span>
@@ -103,14 +116,18 @@ export default function App() {
               <Share2 className="w-4 h-4" />
               <span className="hidden sm:inline">Compartir</span>
             </TabsTrigger>
-            <TabsTrigger value="nodes" className="flex items-center gap-2">
-              <Server className="w-4 h-4" />
-              <span className="hidden sm:inline">Nodos</span>
-            </TabsTrigger>
-            <TabsTrigger value="sessions" className="flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              <span className="hidden sm:inline">Sesiones</span>
-            </TabsTrigger>
+            {isAdmin && (
+              <>
+                <TabsTrigger value="nodes" className="flex items-center gap-2">
+                  <Server className="w-4 h-4" />
+                  <span className="hidden sm:inline">Nodos</span>
+                </TabsTrigger>
+                <TabsTrigger value="sessions" className="flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  <span className="hidden sm:inline">Sesiones</span>
+                </TabsTrigger>
+              </>
+            )}
           </TabsList>
 
           <TabsContent value="player">
@@ -125,13 +142,17 @@ export default function App() {
             <FileSharing />
           </TabsContent>
 
-          <TabsContent value="nodes">
-            <NodeMonitor />
-          </TabsContent>
+          {isAdmin && (
+            <TabsContent value="nodes">
+              <NodeMonitor />
+            </TabsContent>
+          )}
 
-          <TabsContent value="sessions">
-            <UserSessions />
-          </TabsContent>
+          {isAdmin && (
+            <TabsContent value="sessions">
+              <UserSessions />
+            </TabsContent>
+          )}
         </Tabs>
       </main>
 

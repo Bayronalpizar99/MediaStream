@@ -9,10 +9,18 @@ export interface RegisterPayload {
   password: string;
 }
 
+export interface AuthUser {
+  id: string;
+  email: string;
+  username: string;
+  role: string;
+}
+
 export interface AuthResponse {
   message: string;
   userId?: string; // From login
   id?: string;     // From register
+  user?: AuthUser;
 }
 
 export interface AuthError {

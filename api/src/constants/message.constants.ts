@@ -13,6 +13,9 @@ export const AUTH_ERROR_MESSAGES = {
   USERNAME_ALREADY_IN_USE: 'Username already in use',
   EMAIL_IS_REQUIRED: 'Email is required',
   PASSWORD_IS_REQUIRED: 'Password is required',
+  USERNAME_IS_REQUIRED: 'Username is required',
+  ROLE_IS_INVALID: 'Invalid role provided',
+  INSUFFICIENT_PERMISSIONS: 'Insufficient permissions for this action',
 };
 
 export const AUTH_MESSAGES = {
