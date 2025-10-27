@@ -25,6 +25,13 @@ import {
   CORS_CONFIG,
   CONTENT_TYPES
 } from './http.constants';
+import {
+  USER_ROLES,
+  DEFAULT_ROLE,
+  ROLE_PERMISSIONS,
+  PERMISSIONS,
+  ROLE_POLICY
+} from './roles.constants';
 
 export {
   ERROR_MESSAGES,
@@ -47,5 +54,10 @@ export {
   HTTP_METHODS,
   HTTP_HEADERS,
   CORS_CONFIG,
-  CONTENT_TYPES
+  CONTENT_TYPES,
+  USER_ROLES,
+  DEFAULT_ROLE,
+  ROLE_PERMISSIONS,
+  PERMISSIONS,
+  ROLE_POLICY
 };

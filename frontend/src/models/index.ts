@@ -1,6 +1,7 @@
 import { 
     AuthError, 
     AuthResponse, 
+    AuthUser,
     LoginPayload, 
     RegisterPayload 
 } from "./auth.models";
@@ -8,6 +9,7 @@ import {
 export {
     AuthError,
     AuthResponse,
+    AuthUser,
     LoginPayload,
     RegisterPayload
 };

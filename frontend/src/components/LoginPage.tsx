@@ -14,15 +14,10 @@ import { authService } from '../services/authService';
 import { Loader2, Music, Video, Radio, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
 import { ERROR_MESSAGES, APP_CONFIG } from '../constants';
-
-interface User {
-  email: string;
-  username: string;
-  id: string;
-}
+import { AuthUser } from '../models';
 
 interface LoginPageProps {
-  onLogin: (user: User) => void;
+  onLogin: (user: AuthUser) => void;
 }
 
 export function LoginPage({ onLogin }: LoginPageProps) {
@@ -56,10 +51,12 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         password: loginPassword,
       });
 
-      const user = {
+      const apiUser = response.user;
+      const user: AuthUser = apiUser ?? {
         email: loginEmail,
-        username: loginEmail.split('@')[0], // Placeholder, API should return this
-        id: response.userId!,
+        username: loginEmail.split('@')[0],
+        id: response.userId ?? '',
+        role: 'user',
       };
       authService.saveSession(user);
       onLogin(user);
@@ -88,10 +85,12 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         password: registerPassword,
       });
 
-      const user = {
+      const apiUser = response.user;
+      const user: AuthUser = apiUser ?? {
         email: registerEmail,
         username: registerUsername,
-        id: response.id!,
+        id: response.id ?? '',
+        role: 'user',
       };
       authService.saveSession(user);
       onLogin(user);

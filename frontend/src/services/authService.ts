@@ -1,4 +1,4 @@
-import { LoginPayload, RegisterPayload, AuthResponse, AuthError } from '../models';
+import { LoginPayload, RegisterPayload, AuthResponse, AuthError, AuthUser } from '../models';
 import { 
   API_CONFIG, 
   HTTP_METHODS, 
@@ -69,7 +69,7 @@ export const authService = {
   /**
    * Save user session to localStorage
    */
-  saveSession(user: { email: string; username: string; id: string }) {
+  saveSession(user: AuthUser) {
     const session = { user, timestamp: Date.now() };
     localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(session));
   },
@@ -77,7 +77,7 @@ export const authService = {
   /**
    * Get user session from localStorage
    */
-  getSession(): { user: { email: string; username: string; id: string } } | null {
+  getSession(): { user: AuthUser } | null {
     const session = localStorage.getItem(STORAGE_KEYS.SESSION);
     return session ? JSON.parse(session) : null;
   },
