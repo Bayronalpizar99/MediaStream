@@ -1,3 +1,5 @@
+import { SESSION_HEADERS } from './session.constants';
+
 // HTTP Methods
 export const HTTP_METHODS = {
   GET: 'GET',
@@ -32,6 +34,9 @@ export const CORS_CONFIG = {
   ALLOWED_HEADERS: [
     HTTP_HEADERS.CONTENT_TYPE,
     HTTP_HEADERS.AUTHORIZATION,
+    HTTP_HEADERS.ACCEPT,
+    SESSION_HEADERS.USER_ID,
+    SESSION_HEADERS.SESSION_ID,
   ] as string[],
   CREDENTIALS: true,
 } as const;

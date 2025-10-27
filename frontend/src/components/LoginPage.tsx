@@ -14,10 +14,10 @@ import { authService } from '../services/authService';
 import { Loader2, Music, Video, Radio, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
 import { ERROR_MESSAGES, APP_CONFIG } from '../constants';
-import { AuthUser } from '../models';
+import { AuthSession, AuthUser } from '../models';
 
 interface LoginPageProps {
-  onLogin: (user: AuthUser) => void;
+  onLogin: (user: AuthUser, session: AuthSession) => void;
 }
 
 export function LoginPage({ onLogin }: LoginPageProps) {
@@ -52,14 +52,29 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       });
 
       const apiUser = response.user;
-      const user: AuthUser = apiUser ?? {
-        email: loginEmail,
-        username: loginEmail.split('@')[0],
-        id: response.userId ?? '',
-        role: 'user',
+      const apiSession = response.session;
+
+      if (!apiUser || !apiSession) {
+        throw new Error(ERROR_MESSAGES.LOGIN_FAILED);
+      }
+
+      const user: AuthUser = {
+        id: apiUser.id ?? response.userId ?? '',
+        email: apiUser.email ?? loginEmail,
+        username: apiUser.username ?? loginEmail.split('@')[0],
+        role: apiUser.role ?? 'user',
       };
-      authService.saveSession(user);
-      onLogin(user);
+
+      const session: AuthSession = {
+        ...apiSession,
+        userId: apiSession.userId ?? user.id,
+        role: apiSession.role ?? user.role,
+        username: apiSession.username ?? user.username,
+        email: apiSession.email ?? user.email,
+      };
+
+      authService.saveSession(user, session);
+      onLogin(user, session);
     } catch (err: any) {
       setError(err.message || ERROR_MESSAGES.LOGIN_FAILED);
     } finally {
@@ -86,14 +101,29 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       });
 
       const apiUser = response.user;
-      const user: AuthUser = apiUser ?? {
-        email: registerEmail,
-        username: registerUsername,
-        id: response.id ?? '',
-        role: 'user',
+      const apiSession = response.session;
+
+      if (!apiUser || !apiSession) {
+        throw new Error(ERROR_MESSAGES.REGISTRATION_FAILED);
+      }
+
+      const user: AuthUser = {
+        id: apiUser.id ?? response.id ?? '',
+        email: apiUser.email ?? registerEmail,
+        username: apiUser.username ?? registerUsername,
+        role: apiUser.role ?? 'user',
       };
-      authService.saveSession(user);
-      onLogin(user);
+
+      const session: AuthSession = {
+        ...apiSession,
+        userId: apiSession.userId ?? user.id,
+        role: apiSession.role ?? user.role,
+        username: apiSession.username ?? user.username,
+        email: apiSession.email ?? user.email,
+      };
+
+      authService.saveSession(user, session);
+      onLogin(user, session);
     } catch (err: any) {
       setError(err.message || ERROR_MESSAGES.REGISTRATION_FAILED);
     } finally {

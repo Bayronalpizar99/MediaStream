@@ -2,11 +2,13 @@ import { Request, Response, NextFunction } from 'express';
 import { 
     USER_ROLES, 
     ROLE_PERMISSIONS, 
-    AUTH_ERROR_MESSAGES, 
+    AUTH_ERROR_MESSAGES,
+    SESSION_ERROR_MESSAGES,
+    SESSION_HEADERS,
+    SESSION_TIMEOUTS,
+    SESSION_STATUS,
     HttpErrorStatusCodes,
-    COLLECTIONS_NAMES,
-    COLLECTIONS_FIELDS,
-    INDEXES
+    COLLECTIONS_NAMES
 } from '../constants';
 import db from '../config';
 
@@ -19,6 +21,15 @@ declare global {
                 email: string;
                 username: string;
                 role: string;
+            };
+            session?: {
+                id: string;
+                status: typeof SESSION_STATUS[keyof typeof SESSION_STATUS];
+                lastActivity: Date;
+                expiresAt: Date;
+                createdAt: Date;
+                ipAddress?: string | null;
+                userAgent?: string | null;
             };
         }
     }
@@ -114,14 +125,95 @@ export const requireOwnershipOrAdmin = (resourceUserIdField: string = 'userId') 
  */
 export const authenticateUser = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        // For now, we'll get user ID from headers (in production, use JWT)
-        const userId = req.headers['x-user-id'] as string;
-        
-        if (!userId) {
+        const userId = req.headers[SESSION_HEADERS.USER_ID] as string;
+        const sessionId = req.headers[SESSION_HEADERS.SESSION_ID] as string;
+
+        if (!userId || !sessionId) {
             return res.status(HttpErrorStatusCodes.UNAUTHORIZED).send({
-                message: AUTH_ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS
+                message: SESSION_ERROR_MESSAGES.SESSION_REQUIRED
             });
         }
+
+        const sessionRef = db.db.collection(COLLECTIONS_NAMES.SESSIONS).doc(sessionId);
+        const sessionDoc = await sessionRef.get();
+
+        if (!sessionDoc.exists) {
+            return res.status(HttpErrorStatusCodes.UNAUTHORIZED).send({
+                message: SESSION_ERROR_MESSAGES.SESSION_NOT_FOUND
+            });
+        }
+
+        const sessionData = sessionDoc.data();
+
+        if (!sessionData || sessionData.userId !== userId) {
+            return res.status(HttpErrorStatusCodes.UNAUTHORIZED).send({
+                message: SESSION_ERROR_MESSAGES.SESSION_NOT_FOUND
+            });
+        }
+
+        if (sessionData.status === SESSION_STATUS.TERMINATED) {
+            return res.status(HttpErrorStatusCodes.UNAUTHORIZED).send({
+                message: SESSION_ERROR_MESSAGES.SESSION_TERMINATED
+            });
+        }
+
+        const toDate = (value: any): Date => {
+            if (!value) {
+                return new Date(0);
+            }
+            if (value instanceof Date) {
+                return value;
+            }
+            if (typeof value.toDate === 'function') {
+                return value.toDate();
+            }
+            return new Date(value);
+        };
+
+        const now = new Date();
+        const lastActivity = toDate(sessionData.lastActivity || sessionData.createdAt || now);
+        const expiresAt = toDate(sessionData.expiresAt || now);
+        const idleTimeoutMs = SESSION_TIMEOUTS.IDLE_MINUTES * 60 * 1000;
+        const maxDurationMs = SESSION_TIMEOUTS.MAX_DURATION_HOURS * 60 * 60 * 1000;
+        const createdAt = toDate(sessionData.createdAt || now);
+
+        if (sessionData.status === SESSION_STATUS.EXPIRED || now > expiresAt) {
+            await sessionRef.update({
+                status: SESSION_STATUS.EXPIRED,
+                terminatedAt: now
+            });
+            return res.status(HttpErrorStatusCodes.UNAUTHORIZED).send({
+                message: SESSION_ERROR_MESSAGES.SESSION_EXPIRED
+            });
+        }
+
+        if (now.getTime() - lastActivity.getTime() > idleTimeoutMs) {
+            await sessionRef.update({
+                status: SESSION_STATUS.EXPIRED,
+                terminatedAt: now
+            });
+            return res.status(HttpErrorStatusCodes.UNAUTHORIZED).send({
+                message: SESSION_ERROR_MESSAGES.SESSION_EXPIRED
+            });
+        }
+
+        if (now.getTime() - createdAt.getTime() > maxDurationMs) {
+            await sessionRef.update({
+                status: SESSION_STATUS.EXPIRED,
+                terminatedAt: now
+            });
+            return res.status(HttpErrorStatusCodes.UNAUTHORIZED).send({
+                message: SESSION_ERROR_MESSAGES.SESSION_EXPIRED
+            });
+        }
+
+        // Refresh session timers
+        const newExpiresAt = new Date(now.getTime() + idleTimeoutMs);
+        await sessionRef.update({
+            lastActivity: now,
+            expiresAt: newExpiresAt,
+            status: SESSION_STATUS.ACTIVE
+        });
 
         // Get user data from database
         const userDoc = await db.db.collection(COLLECTIONS_NAMES.USERS).doc(userId).get();
@@ -146,6 +238,16 @@ export const authenticateUser = async (req: Request, res: Response, next: NextFu
             email: userData.email,
             username: userData.username,
             role: userData.role
+        };
+
+        req.session = {
+            id: sessionId,
+            status: SESSION_STATUS.ACTIVE,
+            lastActivity: now,
+            expiresAt: newExpiresAt,
+            createdAt,
+            ipAddress: sessionData.ipAddress ?? null,
+            userAgent: sessionData.userAgent ?? null
         };
 
         next();

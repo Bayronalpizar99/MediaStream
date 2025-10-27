@@ -1,108 +1,190 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Button } from './ui/button';
+import { Alert, AlertDescription } from './ui/alert';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { Users, Activity, Clock, MapPin, LogOut } from 'lucide-react';
+import { Users, Activity, Clock, MapPin, LogOut, AlertCircle, Loader2 } from 'lucide-react';
+import { sessionService } from '../services/sessionService';
+import { AuthSession, SessionStatus } from '../models';
+import { ERROR_MESSAGES } from '../constants';
 
-interface UserSession {
-  id: string;
-  username: string;
-  status: 'active' | 'idle' | 'offline';
-  currentActivity: string;
-  location: string;
-  loginTime: string;
-  duration: string;
-  node: string;
-}
+const STATUS_LABELS: Record<SessionStatus, string> = {
+  active: 'Activa',
+  idle: 'En reposo',
+  expired: 'Expirada',
+  terminated: 'Terminada',
+};
 
-const mockSessions: UserSession[] = [
-  {
-    id: '1',
-    username: 'usuario1',
-    status: 'active',
-    currentActivity: 'Reproduciendo: Summer Vibes.mp3',
-    location: 'Node-01',
-    loginTime: '10:30 AM',
-    duration: '2h 15m',
-    node: 'Node-01',
-  },
-  {
-    id: '2',
-    username: 'usuario2',
-    status: 'active',
-    currentActivity: 'Convirtiendo: video.avi → MP4',
-    location: 'Node-02',
-    loginTime: '09:45 AM',
-    duration: '3h 00m',
-    node: 'Node-02',
-  },
-  {
-    id: '3',
-    username: 'usuario3',
-    status: 'idle',
-    currentActivity: 'En espera',
-    location: 'Node-01',
-    loginTime: '08:20 AM',
-    duration: '4h 25m',
-    node: 'Node-01',
-  },
-  {
-    id: '4',
-    username: 'usuario4',
-    status: 'active',
-    currentActivity: 'Subiendo archivo: presentation.flac',
-    location: 'Node-03',
-    loginTime: '11:15 AM',
-    duration: '1h 30m',
-    node: 'Node-03',
-  },
-  {
-    id: '5',
-    username: 'usuario5',
-    status: 'active',
-    currentActivity: 'Reproduciendo: Tutorial React.mp4',
-    location: 'Node-02',
-    loginTime: '10:00 AM',
-    duration: '2h 45m',
-    node: 'Node-02',
-  },
-  {
-    id: '6',
-    username: 'usuario6',
-    status: 'idle',
-    currentActivity: 'En espera',
-    location: 'Node-03',
-    loginTime: '07:30 AM',
-    duration: '5h 15m',
-    node: 'Node-03',
-  },
-];
+const STATUS_VARIANTS: Record<SessionStatus, 'default' | 'secondary' | 'outline' | 'destructive'> = {
+  active: 'default',
+  idle: 'secondary',
+  expired: 'outline',
+  terminated: 'destructive',
+};
+
+const STATUS_ICON_CLASSES: Record<SessionStatus, string> = {
+  active: 'text-green-500',
+  idle: 'text-yellow-500',
+  expired: 'text-gray-400',
+  terminated: 'text-red-500',
+};
+
+const formatDateTime = (iso: string) => new Date(iso).toLocaleString();
+
+const formatRelativeTime = (iso: string) => {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(diffMs)) {
+    return 'Sin datos';
+  }
+
+  if (diffMs < 30_000) {
+    return 'Hace unos segundos';
+  }
+  if (diffMs < 60_000) {
+    return 'Hace menos de un minuto';
+  }
+
+  const diffMinutes = Math.floor(diffMs / 60_000);
+  if (diffMinutes < 60) {
+    return `Hace ${diffMinutes} minuto${diffMinutes === 1 ? '' : 's'}`;
+  }
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `Hace ${diffHours} hora${diffHours === 1 ? '' : 's'}`;
+  }
+
+  const diffDays = Math.floor(diffHours / 24);
+  return `Hace ${diffDays} día${diffDays === 1 ? '' : 's'}`;
+};
+
+const formatDurationFromMs = (ms: number) => {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+};
+
+const getInitials = (value?: string | null) =>
+  value && value.length > 0 ? value.substring(0, 2).toUpperCase() : 'NA';
+
+const renderStatusIcon = (status: SessionStatus) => {
+  const iconClass = STATUS_ICON_CLASSES[status];
+  switch (status) {
+    case 'active':
+      return <Activity className={`w-3 h-3 ${iconClass}`} />;
+    case 'idle':
+      return <Clock className={`w-3 h-3 ${iconClass}`} />;
+    case 'terminated':
+      return <LogOut className={`w-3 h-3 ${iconClass}`} />;
+    case 'expired':
+    default:
+      return <Clock className={`w-3 h-3 ${iconClass}`} />;
+  }
+};
 
 export function UserSessions() {
-  const getStatusColor = (status: UserSession['status']) => {
-    switch (status) {
-      case 'active':
-        return 'default';
-      case 'idle':
-        return 'secondary';
-      case 'offline':
-        return 'outline';
+  const [sessions, setSessions] = useState<AuthSession[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [terminatingId, setTerminatingId] = useState<string | null>(null);
+
+  const fetchSessions = async (showLoader = false) => {
+    try {
+      if (showLoader) {
+        setIsLoading(true);
+      }
+      const data = await sessionService.getSessions();
+      setSessions(data);
+      setError(null);
+    } catch (err: any) {
+      setError(err?.message || ERROR_MESSAGES.GENERIC_ERROR);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const activeUsers = mockSessions.filter((s) => s.status === 'active').length;
-  const idleUsers = mockSessions.filter((s) => s.status === 'idle').length;
+  useEffect(() => {
+    void fetchSessions(true);
+  }, []);
+
+  const handleTerminate = async (sessionId: string) => {
+    try {
+      setTerminatingId(sessionId);
+      await sessionService.terminateSession(sessionId);
+      await fetchSessions(false);
+    } catch (err: any) {
+      setError(err?.message || ERROR_MESSAGES.GENERIC_ERROR);
+    } finally {
+      setTerminatingId(null);
+    }
+  };
+
+  const totalSessions = sessions.length;
+  const activeCount = useMemo(() => sessions.filter((s) => s.status === 'active').length, [sessions]);
+  const idleCount = useMemo(() => sessions.filter((s) => s.status === 'idle').length, [sessions]);
+  const expiredCount = useMemo(() => sessions.filter((s) => s.status === 'expired').length, [sessions]);
+  const terminatedCount = useMemo(() => sessions.filter((s) => s.status === 'terminated').length, [sessions]);
+  const inactiveCount = idleCount + expiredCount + terminatedCount;
+
+  const roleDistribution = useMemo(() => {
+    return sessions.reduce<Record<string, number>>((acc, session) => {
+      const role = session.role ?? 'user';
+      acc[role] = (acc[role] ?? 0) + 1;
+      return acc;
+    }, {});
+  }, [sessions]);
+
+  const recentSessions = useMemo(() => {
+    return [...sessions]
+      .sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime())
+      .slice(0, 4);
+  }, [sessions]);
+
+  const averageDuration = useMemo(() => {
+    if (!sessions.length) {
+      return '0s';
+    }
+
+    const totalMs = sessions.reduce((acc, session) => {
+      const endIso = session.terminatedAt ?? session.lastActivity ?? new Date().toISOString();
+      return acc + (new Date(endIso).getTime() - new Date(session.createdAt).getTime());
+    }, 0);
+
+    return formatDurationFromMs(totalMs / sessions.length);
+  }, [sessions]);
+
+  const sessionsToday = useMemo(() => {
+    const today = new Date().toDateString();
+    return sessions.filter((session) => new Date(session.createdAt).toDateString() === today).length;
+  }, [sessions]);
 
   return (
     <div className="space-y-6">
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       <div className="grid md:grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Usuarios Totales</p>
-                <p className="text-3xl mt-1">{mockSessions.length}</p>
+                <p className="text-sm text-gray-500">Usuarios conectados</p>
+                <p className="text-3xl mt-1">{totalSessions}</p>
               </div>
               <Users className="w-8 h-8 text-blue-500" />
             </div>
@@ -113,8 +195,8 @@ export function UserSessions() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Usuarios Activos</p>
-                <p className="text-3xl mt-1">{activeUsers}</p>
+                <p className="text-sm text-gray-500">Sesiones activas</p>
+                <p className="text-3xl mt-1">{activeCount}</p>
               </div>
               <Activity className="w-8 h-8 text-green-500" />
             </div>
@@ -125,8 +207,8 @@ export function UserSessions() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Usuarios Inactivos</p>
-                <p className="text-3xl mt-1">{idleUsers}</p>
+                <p className="text-sm text-gray-500">Sesiones inactivas</p>
+                <p className="text-3xl mt-1">{inactiveCount}</p>
               </div>
               <Clock className="w-8 h-8 text-yellow-500" />
             </div>
@@ -137,61 +219,104 @@ export function UserSessions() {
       <Card>
         <CardHeader>
           <CardTitle>Sesiones Activas</CardTitle>
-          <CardDescription>
-            Control y monitoreo de usuarios conectados al sistema
-          </CardDescription>
+          <CardDescription>Control y monitoreo de usuarios conectados al sistema</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Usuario</TableHead>
+                <TableHead>Rol</TableHead>
                 <TableHead>Estado</TableHead>
-                <TableHead>Actividad Actual</TableHead>
-                <TableHead>Nodo</TableHead>
-                <TableHead>Hora de Inicio</TableHead>
-                <TableHead>Duración</TableHead>
-                <TableHead>Acciones</TableHead>
+                <TableHead>Inicio</TableHead>
+                <TableHead>Última actividad</TableHead>
+                <TableHead>IP</TableHead>
+                <TableHead>Cliente</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockSessions.map((session) => (
-                <TableRow key={session.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Avatar>
-                        <AvatarFallback>
-                          {session.username.substring(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span>{session.username}</span>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-8 text-center text-sm text-gray-500">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>Cargando sesiones activas...</span>
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <Badge variant={getStatusColor(session.status)}>
-                      {session.status === 'active' && <Activity className="w-3 h-3 mr-1" />}
-                      {session.status === 'idle' && <Clock className="w-3 h-3 mr-1" />}
-                      {session.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="max-w-xs truncate">
-                    {session.currentActivity}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="flex items-center gap-1 w-fit">
-                      <MapPin className="w-3 h-3" />
-                      {session.node}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{session.loginTime}</TableCell>
-                  <TableCell>{session.duration}</TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="sm">
-                      <LogOut className="w-4 h-4" />
-                    </Button>
+                </TableRow>
+              ) : totalSessions === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-8 text-center text-sm text-gray-500">
+                    No hay sesiones activas en este momento.
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                sessions.map((session) => {
+                  const canTerminate = session.status === 'active' || session.status === 'idle';
+                  const isTerminating = terminatingId === session.id;
+
+                  return (
+                    <TableRow key={session.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar>
+                            <AvatarFallback>{getInitials(session.username ?? session.email)}</AvatarFallback>
+                          </Avatar>
+                          <div className="flex flex-col">
+                            <span>{session.username ?? 'Sin nombre'}</span>
+                            <span className="text-xs text-gray-500">{session.email ?? session.userId}</span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="uppercase tracking-wide text-xs">
+                          {session.role ?? 'user'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={STATUS_VARIANTS[session.status]}>
+                          {renderStatusIcon(session.status)}
+                          {STATUS_LABELS[session.status]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{formatDateTime(session.createdAt)}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span>{formatDateTime(session.lastActivity)}</span>
+                          <span className="text-xs text-gray-500">{formatRelativeTime(session.lastActivity)}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-3 h-3 text-gray-500" />
+                          <span className="text-sm text-gray-600">{session.ipAddress ?? 'N/A'}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="max-w-xs truncate text-sm text-gray-600">
+                        {session.userAgent ?? 'Sin información'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canTerminate || isTerminating}
+                          onClick={() => handleTerminate(session.id)}
+                        >
+                          {isTerminating ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <LogOut className="w-4 h-4 mr-1" />
+                              Forzar cierre
+                            </>
+                          )}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
             </TableBody>
           </Table>
         </CardContent>
@@ -200,24 +325,24 @@ export function UserSessions() {
       <div className="grid md:grid-cols-3 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Distribución por Nodo</CardTitle>
+            <CardTitle>Distribución por rol</CardTitle>
+            <CardDescription>Usuarios conectados según rol asignado</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {['Node-01', 'Node-02', 'Node-03'].map((node) => {
-                const count = mockSessions.filter((s) => s.node === node).length;
-                const percentage = (count / mockSessions.length) * 100;
+              {Object.keys(roleDistribution).length === 0 && (
+                <p className="text-sm text-gray-500">No hay sesiones registradas.</p>
+              )}
+              {Object.entries(roleDistribution).map(([role, count]) => {
+                const percentage = totalSessions > 0 ? Math.round((count / totalSessions) * 100) : 0;
                 return (
-                  <div key={node} className="space-y-2">
+                  <div key={role} className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
-                      <span>{node}</span>
-                      <span>{count} usuarios</span>
+                      <span className="uppercase tracking-wide text-gray-600">{role}</span>
+                      <span>{count} usuario{count === 1 ? '' : 's'}</span>
                     </div>
                     <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-blue-500"
-                        style={{ width: `${percentage}%` }}
-                      />
+                      <div className="h-full bg-blue-500" style={{ width: `${percentage}%` }} />
                     </div>
                   </div>
                 );
@@ -228,60 +353,48 @@ export function UserSessions() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Actividades Recientes</CardTitle>
+            <CardTitle>Actividad reciente</CardTitle>
+            <CardDescription>Últimos movimientos dentro de la plataforma</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <Activity className="w-4 h-4 mt-1 text-green-500" />
-                <div className="flex-1">
-                  <p className="text-sm">usuario1 inició reproducción</p>
-                  <p className="text-xs text-gray-500">Hace 5 minutos</p>
+              {recentSessions.length === 0 && (
+                <p className="text-sm text-gray-500">Aún no hay actividad registrada.</p>
+              )}
+              {recentSessions.map((session) => (
+                <div key={session.id} className="flex items-start gap-3">
+                  {renderStatusIcon(session.status)}
+                  <div className="flex-1">
+                    <p className="text-sm">
+                      {session.username ?? session.email ?? session.userId} · {STATUS_LABELS[session.status]}
+                    </p>
+                    <p className="text-xs text-gray-500">{formatRelativeTime(session.lastActivity)}</p>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <Activity className="w-4 h-4 mt-1 text-blue-500" />
-                <div className="flex-1">
-                  <p className="text-sm">usuario2 inició conversión</p>
-                  <p className="text-xs text-gray-500">Hace 12 minutos</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <Activity className="w-4 h-4 mt-1 text-purple-500" />
-                <div className="flex-1">
-                  <p className="text-sm">usuario4 subió un archivo</p>
-                  <p className="text-xs text-gray-500">Hace 18 minutos</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <Activity className="w-4 h-4 mt-1 text-green-500" />
-                <div className="flex-1">
-                  <p className="text-sm">usuario5 descargó un archivo</p>
-                  <p className="text-xs text-gray-500">Hace 25 minutos</p>
-                </div>
-              </div>
+              ))}
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Estadísticas de Sesión</CardTitle>
+            <CardTitle>Estadísticas de sesión</CardTitle>
+            <CardDescription>Resumen general del uso actual</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <div>
                 <p className="text-sm text-gray-500">Duración promedio</p>
-                <p className="text-2xl mt-1">3h 12m</p>
+                <p className="text-2xl mt-1">{averageDuration}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Sesiones hoy</p>
-                <p className="text-2xl mt-1">18</p>
+                <p className="text-sm text-gray-500">Sesiones iniciadas hoy</p>
+                <p className="text-2xl mt-1">{sessionsToday}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Pico de usuarios</p>
-                <p className="text-2xl mt-1">12 usuarios</p>
-                <p className="text-xs text-gray-500">A las 11:30 AM</p>
+                <p className="text-sm text-gray-500">Sesiones finalizadas</p>
+                <p className="text-2xl mt-1">{terminatedCount + expiredCount}</p>
+                <p className="text-xs text-gray-500">Incluye sesiones expiradas y cerradas manualmente</p>
               </div>
             </div>
           </CardContent>

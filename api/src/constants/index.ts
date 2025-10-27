@@ -1,7 +1,9 @@
 import {
   ERROR_MESSAGES, 
   AUTH_ERROR_MESSAGES, 
-  AUTH_MESSAGES
+  AUTH_MESSAGES,
+  SESSION_MESSAGES,
+  SESSION_ERROR_MESSAGES
 } from './message.constants';
 import {
   ENV_VARIABLES, 
@@ -32,6 +34,11 @@ import {
   PERMISSIONS,
   ROLE_POLICY
 } from './roles.constants';
+import {
+  SESSION_STATUS,
+  SESSION_TIMEOUTS,
+  SESSION_HEADERS
+} from './session.constants';
 
 export {
   ERROR_MESSAGES,
@@ -46,6 +53,8 @@ export {
   COLLECTIONS_NAMES,
   COLLECTIONS_FIELDS,
   AUTH_MESSAGES,
+  SESSION_MESSAGES,
+  SESSION_ERROR_MESSAGES,
   HttpErrorStatusCodes,
   HttpSuccessStatusCodes,
   HttpRedirectionStatusCodes,
@@ -59,5 +68,8 @@ export {
   DEFAULT_ROLE,
   ROLE_PERMISSIONS,
   PERMISSIONS,
-  ROLE_POLICY
+  ROLE_POLICY,
+  SESSION_STATUS,
+  SESSION_TIMEOUTS,
+  SESSION_HEADERS
 };
