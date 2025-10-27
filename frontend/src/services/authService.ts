@@ -6,7 +6,8 @@ import {
   CONTENT_TYPES, 
   ERROR_CODES, 
   ERROR_MESSAGES,
-  STORAGE_KEYS 
+  STORAGE_KEYS,
+  SESSION_HEADERS // <-- AÑADIDO
 } from '../constants';
 
 
@@ -134,4 +135,23 @@ export const authService = {
     const current = this.getSession();
     return Boolean(current?.user && current.session);
   },
+
+  // 👇 --- FUNCIÓN AÑADIDA --- 👇
+  /**
+   * Get session authorization headers for API requests
+   */
+  getSessionHeaders(): Record<string, string> {
+    const storedSession = this.getSession();
+
+    if (!storedSession?.user?.id || !storedSession?.session?.id) {
+      console.warn('No session data found for auth headers');
+      return {}; // Retorna objeto vacío si no hay sesión
+    }
+
+    return {
+      [SESSION_HEADERS.USER_ID]: storedSession.user.id,
+      [SESSION_HEADERS.SESSION_ID]: storedSession.session.id,
+    };
+  },
+  // 👆 --- FIN DE LA FUNCIÓN AÑADIDA --- 👆
 };

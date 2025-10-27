@@ -1,8 +1,10 @@
 import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
-import { healthRouter, authRouter } from './routes';
+import { healthRouter, authRouter, mediaRouter } from './routes';
 import { 
   ERROR_MESSAGES, 
   ENV_VARIABLES, 
@@ -31,12 +33,12 @@ app.use(cors({
 }));
 
 app.use(express.json());
-// Use detailed logs in production and concise 'dev' logs otherwise
 app.use(morgan(NODE_ENV === VALID_NODE_ENVS.PRODUCTION ? LOG_FORMATS.PRODUCTION : LOG_FORMATS.DEVELOPMENT));
 
 
 app.use('/health', healthRouter);
 app.use('/auth', authRouter);
+app.use('/media', mediaRouter);
 
 app.get('/', (_req, res) => {
   res.json({
@@ -46,13 +48,10 @@ app.get('/', (_req, res) => {
   });
 });
 
-// 404 handler
 app.use((req, res, _next) => {
   res.status(404).json({ error: ERROR_MESSAGES.NOT_FOUND, path: req.path });
 });
 
-// Error handler
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(`${ERROR_MESSAGES.UNHANDLED_ERROR}:`, err);
   res.status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });

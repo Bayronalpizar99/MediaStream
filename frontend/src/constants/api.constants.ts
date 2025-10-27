@@ -1,10 +1,20 @@
-// API Configuration
 export const API_CONFIG = {
   BASE_URL: import.meta.env.VITE_API_URL,
   ENDPOINTS: {
     AUTH: {
       LOGIN: '/auth/login',
       REGISTER: '/auth/register',
+      LOGOUT: '/auth/logout',
+      HEARTBEAT: '/auth/sessions/heartbeat',
+      GET_SESSIONS: '/auth/sessions',
+      TERMINATE_SESSION: (sessionId: string) => `/auth/sessions/${sessionId}/terminate`,
+    },
+    MEDIA: {
+      UPLOAD: '/media/upload',
+      MY_FILES: '/media/my-files',
+      SHARED_WITH_ME: '/media/shared-with-me',
+      SHARE: (fileId: string) => `/media/${fileId}/share`,
+      DELETE: (fileId: string) => `/media/${fileId}`,
     },
     HEALTH: '/health',
   },
