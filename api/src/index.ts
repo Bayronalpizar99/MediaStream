@@ -2,7 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
-import { healthRouter, authRouter } from './routes';
+// 👇 1. Importa el 'filesRouter' aquí
+import { healthRouter, authRouter, filesRouter } from './routes';
 import { 
   ERROR_MESSAGES, 
   ENV_VARIABLES, 
@@ -31,12 +32,13 @@ app.use(cors({
 }));
 
 app.use(express.json());
-// Use detailed logs in production and concise 'dev' logs otherwise
 app.use(morgan(NODE_ENV === VALID_NODE_ENVS.PRODUCTION ? LOG_FORMATS.PRODUCTION : LOG_FORMATS.DEVELOPMENT));
 
 
 app.use('/health', healthRouter);
 app.use('/auth', authRouter);
+// 👇 2. Añade la nueva ruta aquí
+app.use('/files', filesRouter);
 
 app.get('/', (_req, res) => {
   res.json({
