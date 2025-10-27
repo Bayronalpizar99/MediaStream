@@ -1,4 +1,4 @@
-import { LoginPayload, RegisterPayload, AuthResponse, AuthError, AuthUser } from '../models';
+import { LoginPayload, RegisterPayload, AuthResponse, AuthError, AuthUser, AuthSession } from '../models';
 import { 
   API_CONFIG, 
   HTTP_METHODS, 
@@ -10,6 +10,12 @@ import {
 } from '../constants';
 
 
+
+type StoredSession = {
+  user: AuthUser;
+  session: AuthSession | null;
+  timestamp: number;
+};
 
 export const authService = {
   /**
@@ -69,17 +75,49 @@ export const authService = {
   /**
    * Save user session to localStorage
    */
-  saveSession(user: AuthUser) {
-    const session = { user, timestamp: Date.now() };
-    localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(session));
+  saveSession(user: AuthUser, session?: AuthSession | null) {
+    const payload: StoredSession = { user, session: session ?? null, timestamp: Date.now() };
+    localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(payload));
   },
 
   /**
    * Get user session from localStorage
    */
-  getSession(): { user: AuthUser } | null {
-    const session = localStorage.getItem(STORAGE_KEYS.SESSION);
-    return session ? JSON.parse(session) : null;
+  getSession(): StoredSession | null {
+    const raw = localStorage.getItem(STORAGE_KEYS.SESSION);
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as StoredSession;
+      if (!parsed.user) {
+        return null;
+      }
+      return parsed;
+    } catch (error) {
+      console.error('Failed to parse stored session:', error);
+      localStorage.removeItem(STORAGE_KEYS.SESSION);
+      return null;
+    }
+  },
+
+  /**
+   * Update stored session details
+   */
+  updateSession(session: AuthSession) {
+    const current = this.getSession();
+    if (!current) {
+      return;
+    }
+
+    const payload: StoredSession = {
+      ...current,
+      session,
+      timestamp: Date.now(),
+    };
+
+    localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(payload));
   },
 
   /**
@@ -87,5 +125,13 @@ export const authService = {
    */
   clearSession() {
     localStorage.removeItem(STORAGE_KEYS.SESSION);
+  },
+
+  /**
+   * Returns whether a session is currently stored
+   */
+  hasActiveSession(): boolean {
+    const current = this.getSession();
+    return Boolean(current?.user && current.session);
   },
 };

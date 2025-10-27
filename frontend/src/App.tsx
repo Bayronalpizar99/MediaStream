@@ -9,36 +9,117 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Button } from './components/ui/button';
 import { Music, Video, RefreshCw, Share2, Server, Users, LogOut } from 'lucide-react';
 import { authService } from './services/authService';
-import { AuthUser } from './models';
+import { sessionService } from './services/sessionService';
+import { AuthUser, AuthSession, SessionStatus } from './models';
+import { SESSION_DEFAULTS } from './constants';
+
+const SESSION_STATUS_LABELS: Record<SessionStatus, string> = {
+  active: 'Activa',
+  idle: 'En reposo',
+  expired: 'Expirada',
+  terminated: 'Terminada',
+};
+
+const formatSessionStatus = (status?: SessionStatus) => {
+  if (!status) {
+    return '';
+  }
+  return SESSION_STATUS_LABELS[status] ?? status;
+};
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [currentSession, setCurrentSession] = useState<AuthSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const clearSessionState = () => {
+    authService.clearSession();
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+    setCurrentSession(null);
+  };
 
   // Restore session on mount
   useEffect(() => {
-    const session = authService.getSession();
-    if (session?.user) {
-      const storedUser = session.user;
-      setCurrentUser({
-        ...storedUser,
-        role: storedUser.role ?? 'user',
-      });
+    const stored = authService.getSession();
+    if (stored?.user && stored.session) {
+      const storedUser: AuthUser = {
+        ...stored.user,
+        role: stored.user.role ?? 'user',
+      };
+      const storedSession: AuthSession = {
+        ...stored.session,
+        role: stored.session.role ?? storedUser.role,
+        username: stored.session.username ?? storedUser.username,
+        email: stored.session.email ?? storedUser.email,
+      };
+      setCurrentUser(storedUser);
+      setCurrentSession(storedSession);
       setIsLoggedIn(true);
+    } else if (stored?.user) {
+      authService.clearSession();
     }
     setIsLoading(false);
   }, []);
 
-  const handleLogin = (user: AuthUser) => {
+  useEffect(() => {
+    if (!isLoggedIn || !currentSession) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const refreshSession = async (notify: boolean) => {
+      try {
+        const updatedSession = await sessionService.heartbeat();
+        if (!cancelled) {
+          setCurrentSession({
+            ...updatedSession,
+            role: updatedSession.role ?? currentUser?.role,
+            username: updatedSession.username ?? currentUser?.username,
+            email: updatedSession.email ?? currentUser?.email,
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Heartbeat error:', error);
+          if (notify) {
+            window.alert('Tu sesión ha expirado por inactividad.');
+          }
+          clearSessionState();
+        }
+      }
+    };
+
+    void refreshSession(false);
+
+    const intervalId = window.setInterval(() => {
+      void refreshSession(true);
+    }, SESSION_DEFAULTS.HEARTBEAT_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [isLoggedIn, currentSession?.id, currentUser?.role, currentUser?.username, currentUser?.email]);
+
+  const handleLogin = (user: AuthUser, session: AuthSession) => {
     setCurrentUser(user);
+    setCurrentSession(session);
     setIsLoggedIn(true);
   };
 
-  const handleLogout = () => {
-    authService.clearSession();
-    setIsLoggedIn(false);
-    setCurrentUser(null);
+  const handleLogout = async () => {
+    try {
+      if (currentSession) {
+        await sessionService.logout();
+      }
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+    } finally {
+      clearSessionState();
+    }
   };
 
   if (isLoading) {
@@ -83,8 +164,13 @@ export default function App() {
                     Rol: {currentUser.role}
                   </span>
                 )}
+                {currentSession && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Sesión {formatSessionStatus(currentSession.status)} · expira a las {new Date(currentSession.expiresAt).toLocaleTimeString()}
+                  </p>
+                )}
               </div>
-              <Button variant="outline" onClick={handleLogout}>
+              <Button variant="outline" onClick={() => void handleLogout()}>
                 <LogOut className="w-4 h-4 mr-2" />
                 Cerrar Sesión
               </Button>
@@ -96,10 +182,15 @@ export default function App() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         <div className={`mb-6 rounded-lg border px-4 py-3 text-sm ${isAdmin ? 'border-purple-200 bg-purple-50 text-purple-800' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>
-          {isAdmin ? (
-            <span>Estás en el panel de administradores. Tienes acceso a la gestión de nodos y sesiones, además de todas las herramientas multimedia.</span>
-          ) : (
-            <span>Estás en el panel de usuarios. Disfruta del reproductor, conversión y compartición de archivos.</span>
+          <p>
+            {isAdmin
+              ? 'Estás en el panel de administradores. Tienes acceso a la gestión de nodos y sesiones, además de todas las herramientas multimedia.'
+              : 'Estás en el panel de usuarios. Disfruta del reproductor, conversión y compartición de archivos.'}
+          </p>
+          {currentSession && (
+            <p className="mt-2 text-xs">
+              Última actividad: {new Date(currentSession.lastActivity).toLocaleTimeString()} · Estado: {formatSessionStatus(currentSession.status)}
+            </p>
           )}
         </div>
         <Tabs defaultValue="player" className="space-y-6">
