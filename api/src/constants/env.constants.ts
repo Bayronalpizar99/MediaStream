@@ -3,6 +3,7 @@ export const ENV_VARIABLES = {
     NODE_ENV: 'NODE_ENV',
     CORS_ORIGIN: 'CORS_ORIGIN',
     MONGO_URI: 'MONGO_URI',
+    AUDIO_LIBRARY_PATH: 'AUDIO_LIBRARY_PATH',
 };
 
 export const VALID_NODE_ENVS = {

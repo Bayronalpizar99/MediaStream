@@ -39,6 +39,15 @@ import {
   SESSION_TIMEOUTS,
   SESSION_HEADERS
 } from './session.constants';
+import {
+  AUDIO_FORMATS,
+  SUPPORTED_AUDIO_EXTENSIONS,
+  AUDIO_MIME_TYPES,
+  DEFAULT_AUDIO_LIBRARY,
+  AUDIO_UPLOAD_LIMIT_BYTES,
+  isAudioExtensionSupported,
+  type AudioExtension
+} from './media.constants';
 
 export {
   ERROR_MESSAGES,
@@ -71,5 +80,12 @@ export {
   ROLE_POLICY,
   SESSION_STATUS,
   SESSION_TIMEOUTS,
-  SESSION_HEADERS
+  SESSION_HEADERS,
+  AUDIO_FORMATS,
+  SUPPORTED_AUDIO_EXTENSIONS,
+  AUDIO_MIME_TYPES,
+  DEFAULT_AUDIO_LIBRARY,
+  AUDIO_UPLOAD_LIMIT_BYTES,
+  isAudioExtensionSupported,
+  AudioExtension
 };
