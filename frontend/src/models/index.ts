@@ -7,6 +7,11 @@ import {
     LoginPayload, 
     RegisterPayload 
 } from "./auth.models";
+import {
+    AudioFile,
+    AudioListResponse,
+    AudioUploadResponse
+} from "./audio.models";
 
 export {
     AuthError,
@@ -15,5 +20,8 @@ export {
     AuthUser,
     SessionStatus,
     LoginPayload,
-    RegisterPayload
+    RegisterPayload,
+    AudioFile,
+    AudioListResponse,
+    AudioUploadResponse
 };

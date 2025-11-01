@@ -123,10 +123,26 @@ export const requireOwnershipOrAdmin = (resourceUserIdField: string = 'userId') 
  * Middleware to authenticate user (extract user info from token/session)
  * This is a basic implementation - in production you'd use JWT or similar
  */
+const normalizeSingleValue = (value: string | string[] | undefined): string | undefined => {
+    if (!value) {
+        return undefined;
+    }
+    if (Array.isArray(value)) {
+        return value[0];
+    }
+    return value;
+};
+
 export const authenticateUser = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const userId = req.headers[SESSION_HEADERS.USER_ID] as string;
-        const sessionId = req.headers[SESSION_HEADERS.SESSION_ID] as string;
+        const headerUserId = req.headers[SESSION_HEADERS.USER_ID] as string | undefined;
+        const headerSessionId = req.headers[SESSION_HEADERS.SESSION_ID] as string | undefined;
+
+        const queryUserId = normalizeSingleValue(req.query.userId as string | string[] | undefined);
+        const querySessionId = normalizeSingleValue(req.query.sessionId as string | string[] | undefined);
+
+        const userId = headerUserId || queryUserId;
+        const sessionId = headerSessionId || querySessionId;
 
         if (!userId || !sessionId) {
             return res.status(HttpErrorStatusCodes.UNAUTHORIZED).send({
