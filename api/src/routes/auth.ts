@@ -19,6 +19,7 @@ import db from '../config/';
 import {hashPassword, verifyPassword, authenticateUser, requireAdmin} from "../security/";
 import { CreateUserPayload } from '../models/UsersModel';
 import { SessionResponse } from '../models/SessionsModel';
+import type { WriteResult } from 'firebase-admin/firestore';
 
 export const authRouter = Router();
 
@@ -442,7 +443,7 @@ authRouter.get('/sessions', authenticateUser, requireAdmin, async (_req, res) =>
     try {
         const sessionsSnapshot = await db.db.collection(COLLECTIONS_NAMES.SESSIONS).get();
         const now = new Date();
-        const updates: Promise<void>[] = [];
+        const updates: Promise<WriteResult>[] = [];
 
         const sessions = sessionsSnapshot.docs.map(doc => {
             const sessionData = doc.data();
