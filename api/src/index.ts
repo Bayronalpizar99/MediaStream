@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
-import { healthRouter, authRouter } from './routes';
+import { healthRouter, authRouter, mediaRouter } from './routes';
 import { 
   ERROR_MESSAGES, 
   ENV_VARIABLES, 
@@ -30,13 +30,14 @@ app.use(cors({
   allowedHeaders: CORS_CONFIG.ALLOWED_HEADERS,
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
 // Use detailed logs in production and concise 'dev' logs otherwise
 app.use(morgan(NODE_ENV === VALID_NODE_ENVS.PRODUCTION ? LOG_FORMATS.PRODUCTION : LOG_FORMATS.DEVELOPMENT));
 
 
 app.use('/health', healthRouter);
 app.use('/auth', authRouter);
+app.use('/media', mediaRouter);
 
 app.get('/', (_req, res) => {
   res.json({
