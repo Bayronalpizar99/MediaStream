@@ -46,6 +46,7 @@ export function FileSharing() {
   const [error, setError] = useState<string | null>(null);
   const [shareEmail, setShareEmail] = useState('');
   const [fileToShare, setFileToShare] = useState<MediaFile | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const loadFiles = async () => {
     setIsLoading(true);
     setError(null);
@@ -179,9 +180,22 @@ export function FileSharing() {
                           </span>
                         </div>
                         {}
-                        <Button size="sm" disabled>
+                        <Button
+                          className="h-9 px-3"
+                          onClick={async () => {
+                            setDownloadingId(file.id);
+                            try {
+                              await mediaService.downloadFile(file.id, file.filename);
+                            } catch (err) {
+                              toast.error(err instanceof Error ? err.message : 'Failed to download file');
+                            } finally {
+                              setDownloadingId(null);
+                            }
+                          }}
+                          disabled={downloadingId === file.id}
+                        >
                           <Download className="w-4 h-4 mr-2" />
-                          Descargar
+                          {downloadingId === file.id ? 'Descargando...' : 'Descargar'}
                         </Button>
                       </div>
                     </div>
@@ -233,10 +247,14 @@ export function FileSharing() {
                         <div className="flex gap-2">
                           
                           {}
-                          <Button 
-                            size="sm" 
+                          <Button
+                            className="h-9 px-3"
                             variant="outline"
-                            onClick={() => setFileToShare(file)} 
+                            onClick={() => {
+                              console.log('Botón de compartir presionado');
+                              console.log('Archivo a compartir:', file);
+                              setFileToShare(file);
+                            }}
                           >
                             <Share2 className="w-4 h-4 mr-2" />
                             Compartir
@@ -245,7 +263,7 @@ export function FileSharing() {
                           {}
 
                           {}
-                          <Button size="sm" variant="destructive" onClick={() => handleDelete(file)}>
+                          <Button className="h-9 px-3" variant="destructive" onClick={() => handleDelete(file)}>
                             <Trash2 className="w-4 h-4 mr-2" />
                             Eliminar
                           </Button>
@@ -298,7 +316,7 @@ export function FileSharing() {
       {}
       <Dialog 
         open={!!fileToShare} 
-        onOpenChange={(isOpen) => {
+        onOpenChange={(isOpen: boolean) => {
           if (!isOpen) {
             setFileToShare(null); 
             setShareEmail('');

@@ -15,6 +15,7 @@ export const API_CONFIG = {
       SHARED_WITH_ME: '/media/shared-with-me',
       SHARE: (fileId: string) => `/media/${fileId}/share`,
       DELETE: (fileId: string) => `/media/${fileId}`,
+      DOWNLOAD: (fileId: string) => `/media/${fileId}/download`,
     },
     HEALTH: '/health',
   },

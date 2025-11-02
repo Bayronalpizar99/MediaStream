@@ -76,10 +76,34 @@ const deleteFile = async (fileId: string) => {
 };
 
 
+const downloadFile = async (fileId: string, filename: string) => {
+  const response = await fetch(getApiUrl(API_CONFIG.ENDPOINTS.MEDIA.DOWNLOAD(fileId)), {
+    method: HTTP_METHODS.GET,
+    headers: {
+      ...authService.getSessionHeaders(),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Error downloading file');
+  }
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+};
+
 export const mediaService = {
   getMyFiles,
   getSharedWithMe,
   uploadFile,
   shareFile,
   deleteFile,
+  downloadFile,
 };
