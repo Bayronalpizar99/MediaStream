@@ -12,7 +12,6 @@ import {
 } from '../constants';
 import db from '../config';
 
-// Extend Request interface to include user data
 declare global {
     namespace Express {
         interface Request {
@@ -35,9 +34,6 @@ declare global {
     }
 }
 
-/**
- * Middleware to verify if user has required role
- */
 export const requireRole = (requiredRole: keyof typeof USER_ROLES) => {
     return (req: Request, res: Response, next: NextFunction) => {
         const userRole = req.user?.role;
@@ -58,9 +54,6 @@ export const requireRole = (requiredRole: keyof typeof USER_ROLES) => {
     };
 };
 
-/**
- * Middleware to verify if user has required permission
- */
 export const requirePermission = (permission: string) => {
     return (req: Request, res: Response, next: NextFunction) => {
         const userRole = req.user?.role as keyof typeof ROLE_PERMISSIONS;
@@ -83,14 +76,7 @@ export const requirePermission = (permission: string) => {
     };
 };
 
-/**
- * Middleware to check if user is admin
- */
 export const requireAdmin = requireRole('ADMIN');
-
-/**
- * Middleware to verify user ownership of resource or admin role
- */
 export const requireOwnershipOrAdmin = (resourceUserIdField: string = 'userId') => {
     return (req: Request, res: Response, next: NextFunction) => {
         const currentUserId = req.user?.id;
@@ -103,12 +89,10 @@ export const requireOwnershipOrAdmin = (resourceUserIdField: string = 'userId') 
             });
         }
 
-        // Admin can access any resource
         if (currentUserRole === USER_ROLES.ADMIN) {
             return next();
         }
 
-        // User can only access their own resources
         if (currentUserId === resourceUserId) {
             return next();
         }
@@ -119,10 +103,7 @@ export const requireOwnershipOrAdmin = (resourceUserIdField: string = 'userId') 
     };
 };
 
-/**
- * Middleware to authenticate user (extract user info from token/session)
- * This is a basic implementation - in production you'd use JWT or similar
- */
+
 export const authenticateUser = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const userId = req.headers[SESSION_HEADERS.USER_ID] as string;
