@@ -79,12 +79,19 @@ class NodeRegistry {
     return Array.from(this.nodes.values());
   }
 
-  getAvailableNode(role: NodeRole): RegisteredNode | undefined {
+  getAvailableNodes(role: NodeRole): RegisteredNode[] {
     this.markOfflineIfStale();
-    const candidates = Array.from(this.nodes.values()).filter(
+    return Array.from(this.nodes.values()).filter(
       (node) => node.role === role && node.status === 'online',
     );
-    return candidates[0];
+  }
+
+  markNodeStatus(id: string, status: NodeStatus) {
+    const existing = this.nodes.get(id);
+    if (!existing) {
+      return;
+    }
+    this.nodes.set(id, { ...existing, status });
   }
 }
 
