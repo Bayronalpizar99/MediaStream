@@ -13,6 +13,7 @@
     "lint": "eslint . --ext .ts",
     "node:coordinator": "tsx src/index.ts",
     "node:conversion": "tsx src/nodes/conversionNode.ts",
+    "node:conversion:4003": "CONVERSION_NODE_PORT=4003 CONVERSION_NODE_ID=conversion-node-2 CONVERSION_NODE_NAME=conversion-node-2 tsx src/nodes/conversionNode.ts",
     "node:streaming": "tsx src/nodes/streamingNode.ts"
   },
   "dependencies": {
