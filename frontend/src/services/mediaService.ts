@@ -99,6 +99,33 @@ const downloadFile = async (fileId: string, filename: string) => {
   window.URL.revokeObjectURL(url);
 };
 
+interface AudioConversionPayload {
+  targetFormat: string;
+  bitrateKbps?: number;
+  quality?: number;
+}
+
+const convertAudio = async (fileId: string, payload: AudioConversionPayload) => {
+  const response = await fetch(getApiUrl(API_CONFIG.ENDPOINTS.MEDIA.CONVERT(fileId)), {
+    method: HTTP_METHODS.POST,
+    headers: {
+      ...authService.getSessionHeaders(),
+      'Content-Type': CONTENT_TYPES.JSON,
+      'Accept': CONTENT_TYPES.JSON,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message = (data as { message?: string } | null)?.message ?? 'Error converting audio file';
+    throw new Error(message);
+  }
+
+  return data;
+};
+
 export const mediaService = {
   getMyFiles,
   getSharedWithMe,
@@ -106,4 +133,5 @@ export const mediaService = {
   shareFile,
   deleteFile,
   downloadFile,
+  convertAudio,
 };

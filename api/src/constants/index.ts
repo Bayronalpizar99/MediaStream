@@ -39,6 +39,13 @@ import {
   SESSION_TIMEOUTS,
   SESSION_HEADERS
 } from './session.constants';
+import type { AudioFormat } from './media.constants';
+import {
+  AUDIO_FORMATS,
+  AUDIO_MIME_TYPES,
+  AUDIO_CONVERSION_DEFAULTS,
+  AUDIO_CONVERSION_LIMITS
+} from './media.constants';
 
 export {
   ERROR_MESSAGES,
@@ -71,5 +78,13 @@ export {
   ROLE_POLICY,
   SESSION_STATUS,
   SESSION_TIMEOUTS,
-  SESSION_HEADERS
+  SESSION_HEADERS,
+  AUDIO_FORMATS,
+  AUDIO_MIME_TYPES,
+  AUDIO_CONVERSION_DEFAULTS,
+  AUDIO_CONVERSION_LIMITS
+};
+
+export type {
+  AudioFormat
 };

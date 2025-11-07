@@ -8,9 +8,14 @@ import {
     COLLECTIONS_NAMES, 
     HttpErrorStatusCodes, 
     HttpSuccessStatusCodes, 
-    USER_ROLES
+    USER_ROLES,
+    AUDIO_FORMATS,
+    AUDIO_CONVERSION_LIMITS
 } from '../constants';
 import { MediaFile } from '../models/MediaModel'; 
+import { convertAudioFile } from '../services/audioConversion.service';
+import type { AudioConversionOptions } from '../services/audioConversion.service';
+import type { AudioFormat } from '../constants';
 
 export const mediaRouter = Router();
 const upload = multer({
@@ -110,6 +115,104 @@ mediaRouter.post('/upload', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR).send({ message: 'Internal Server Error' });
+  }
+});
+
+const parseOptionalNumber = (value: unknown): number | undefined => {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) {
+    return undefined;
+  }
+  return parsed;
+};
+
+mediaRouter.post('/:fileId/convert', async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const currentUserId = req.user?.id;
+    const currentUserRole = req.user?.role;
+    const currentUsername = req.user?.username || 'unknown';
+
+    if (!currentUserId) {
+      return res.status(HttpErrorStatusCodes.UNAUTHORIZED).send({ message: 'User not authenticated.' });
+    }
+
+    const { targetFormat, bitrateKbps, quality } = req.body ?? {};
+
+    if (!targetFormat || typeof targetFormat !== 'string') {
+      return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({ message: 'targetFormat is required.' });
+    }
+
+    const normalizedFormat = targetFormat.toLowerCase() as AudioFormat;
+    if (!AUDIO_FORMATS.includes(normalizedFormat)) {
+      return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({ message: 'Unsupported audio format requested.' });
+    }
+
+    const parsedBitrate = parseOptionalNumber(bitrateKbps);
+    if (parsedBitrate !== undefined) {
+      if (
+        parsedBitrate < AUDIO_CONVERSION_LIMITS.MIN_BITRATE_KBPS ||
+        parsedBitrate > AUDIO_CONVERSION_LIMITS.MAX_BITRATE_KBPS
+      ) {
+        return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({
+          message: `Bitrate must be between ${AUDIO_CONVERSION_LIMITS.MIN_BITRATE_KBPS} and ${AUDIO_CONVERSION_LIMITS.MAX_BITRATE_KBPS} kbps.`,
+        });
+      }
+    }
+
+    const parsedQuality = parseOptionalNumber(quality);
+    if (parsedQuality !== undefined) {
+      if (
+        parsedQuality < AUDIO_CONVERSION_LIMITS.MIN_QUALITY ||
+        parsedQuality > AUDIO_CONVERSION_LIMITS.MAX_QUALITY
+      ) {
+        return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({
+          message: `Quality must be between ${AUDIO_CONVERSION_LIMITS.MIN_QUALITY} and ${AUDIO_CONVERSION_LIMITS.MAX_QUALITY}.`,
+        });
+      }
+    }
+
+    const fileRef = dbConfig.db.collection(COLLECTIONS_NAMES.MEDIA_FILES).doc(fileId);
+    const fileDoc = await fileRef.get();
+
+    if (!fileDoc.exists) {
+      return res.status(HttpErrorStatusCodes.NOT_FOUND).send({ message: 'File not found.' });
+    }
+
+    const fileData = fileDoc.data() as MediaFile;
+    const isOwner = fileData.ownerId === currentUserId;
+    const isAdmin = currentUserRole === USER_ROLES.ADMIN;
+
+    if (!isOwner && !isAdmin) {
+      return res.status(HttpErrorStatusCodes.FORBIDDEN).send({ message: 'You do not have permission to convert this file.' });
+    }
+
+    if (!fileData.contentType?.startsWith('audio/')) {
+      return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({ message: 'Only audio files can be converted using this endpoint.' });
+    }
+
+    const convertedFile = await convertAudioFile({
+      fileId,
+      mediaFile: fileData,
+      ownerId: currentUserId,
+      ownerUsername: currentUsername,
+      options: {
+        targetFormat: normalizedFormat as AudioConversionOptions['targetFormat'],
+        bitrateKbps: parsedBitrate,
+        quality: parsedQuality,
+      },
+    });
+
+    return res.status(HttpSuccessStatusCodes.CREATED).send({
+      message: 'File converted successfully.',
+      file: convertedFile,
+    });
+  } catch (error) {
+    console.error('Error converting audio file:', error);
+    return res.status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR).send({ message: 'Internal Server Error' });
   }
 });
 

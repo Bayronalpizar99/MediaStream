@@ -1,5 +1,12 @@
 import { Timestamp } from 'firebase-admin/firestore';
 
+export interface MediaConversionMetadata {
+  sourceFileId: string;
+  targetFormat: string;
+  bitrateKbps: number;
+  quality?: number;
+}
+
 export interface MediaFile {
   id?: string;
   filename: string;       
@@ -11,5 +18,6 @@ export interface MediaFile {
   createdAt: Timestamp;
   
   // Clave para compartir:
-  sharedWith: string[];   
+  sharedWith: string[];
+  conversion?: MediaConversionMetadata;
 }
