@@ -1,4 +1,5 @@
 import { Router, Request } from 'express';
+import type { WriteResult } from 'firebase-admin/firestore';
 import {
     AUTH_ERROR_MESSAGES,
     ERROR_MESSAGES,
@@ -442,7 +443,7 @@ authRouter.get('/sessions', authenticateUser, requireAdmin, async (_req, res) =>
     try {
         const sessionsSnapshot = await db.db.collection(COLLECTIONS_NAMES.SESSIONS).get();
         const now = new Date();
-        const updates: Promise<void>[] = [];
+        const updates: Promise<WriteResult>[] = [];
 
         const sessions = sessionsSnapshot.docs.map(doc => {
             const sessionData = doc.data();

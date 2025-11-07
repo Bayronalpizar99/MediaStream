@@ -1,11 +1,5 @@
-// src/components/FileConverter.tsx
-import React, { useEffect, useState } from "react";
-import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile } from "@ffmpeg/util";
-import { getDownloadURL, ref } from "firebase/storage";
-import { storage } from "../lib/firebaseClient";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { mediaService } from "../services/mediaService";
-
 import {
   Card,
   CardContent,
@@ -21,16 +15,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { Progress } from "./ui/progress";
+import { Slider } from "./ui/slider";
 import { Badge } from "./ui/badge";
+import { Progress } from "./ui/progress";
 import {
   RefreshCw,
   CheckCircle,
+  Download,
+  Settings2,
   FileAudio,
   FileVideo,
-  ArrowRight,
-  Download,
+  AlertTriangle,
 } from "lucide-react";
+
+type ConversionMode = "audio" | "video";
 
 type MediaFile = {
   id: string;
@@ -38,153 +36,271 @@ type MediaFile = {
   storagePath: string;
   contentType?: string;
   size?: number;
+  conversion?: {
+    type?: ConversionMode;
+    sourceFileId: string;
+    targetFormat: string;
+    bitrateKbps?: number;
+    quality?: number;
+    maxWidth?: number;
+  };
 };
 
-type ConversionTask = {
+type ConversionEntry = {
   id: string;
+  mode: ConversionMode;
   fileName: string;
-  fromFormat: string;
-  toFormat: string;
-  status: "pending" | "processing" | "completed" | "error";
-  progress: number;
-  convertedSize: string;
-  node: string;
-  downloadUrl?: string;
+  sourceFormat: string;
+  targetFormat: string;
+  bitrateKbps?: number;
+  quality?: number;
+  maxWidth?: number | null;
+  status: "processing" | "completed" | "error";
+  startedAt: Date;
+  completedAt?: Date;
+  resultFile?: MediaFile;
+  message?: string;
 };
 
-const audioFormats = ["MP3", "FLAC", "WAV", "AAC", "OGG"];
-const videoFormats = ["MP4", "AVI", "MKV", "MOV", "WEBM"];
+const audioFormats = ["mp3", "flac", "wav", "aac", "ogg"];
+const videoFormats = ["mp4", "avi", "mkv"];
+const AUDIO_BITRATE_RANGE = { min: 64, max: 320 };
+const QUALITY_RANGE = { min: 0, max: 9 };
+const VIDEO_BITRATE_RANGE = { min: 500, max: 8000 };
+const VIDEO_WIDTH_OPTIONS: Array<{ label: string; value: number | null }> = [
+  { label: "Original", value: null },
+  { label: "1920 px (Full HD)", value: 1920 },
+  { label: "1280 px (HD)", value: 1280 },
+  { label: "854 px (SD)", value: 854 },
+  { label: "640 px (Ligero)", value: 640 },
+];
 
-// ✅ single ffmpeg instance
-const ffmpeg = new FFmpeg();
+const getFileExtension = (filename?: string | null) => {
+  if (!filename) {
+    return null;
+  }
+  const parts = filename.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+  return parts.pop()?.toLowerCase() ?? null;
+};
+
+const isAudioFile = (file: MediaFile) => {
+  if (file.contentType?.startsWith("audio/")) {
+    return true;
+  }
+  const ext = getFileExtension(file.filename);
+  return Boolean(ext && audioFormats.includes(ext));
+};
+
+const isVideoFile = (file: MediaFile) => {
+  if (file.contentType?.startsWith("video/")) {
+    return true;
+  }
+  const ext = getFileExtension(file.filename);
+  return Boolean(ext && videoFormats.includes(ext));
+};
 
 export function FileConverter() {
-  const [mediaType, setMediaType] = useState<"audio" | "video">("audio");
-  const [fromFormat, setFromFormat] = useState("WAV");
-  const [toFormat, setToFormat] = useState("MP3");
   const [files, setFiles] = useState<MediaFile[]>([]);
-  const [selectedFile, setSelectedFile] = useState<MediaFile | null>(null);
-  const [tasks, setTasks] = useState<ConversionTask[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<ConversionMode>("audio");
+  const [selectedAudioFile, setSelectedAudioFile] = useState<MediaFile | null>(null);
+  const [selectedVideoFile, setSelectedVideoFile] = useState<MediaFile | null>(null);
+  const [audioTargetFormat, setAudioTargetFormat] = useState<string>("mp3");
+  const [videoTargetFormat, setVideoTargetFormat] = useState<string>("mp4");
+  const [audioBitrate, setAudioBitrate] = useState<number>(192);
+  const [audioQuality, setAudioQuality] = useState<number>(2);
+  const [videoBitrate, setVideoBitrate] = useState<number>(2500);
+  const [videoMaxWidth, setVideoMaxWidth] = useState<number | null>(1280);
+  const [history, setHistory] = useState<ConversionEntry[]>([]);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const formats = mediaType === "audio" ? audioFormats : videoFormats;
+  const audioFiles = useMemo(() => files.filter(isAudioFile), [files]);
+  const videoFiles = useMemo(() => files.filter(isVideoFile), [files]);
 
-  // ✅ Load user's files
-  useEffect(() => {
-    const fetchFiles = async () => {
-      try {
-        const [myFiles, sharedFiles] = await Promise.all([
-          mediaService.getMyFiles(),
-          mediaService.getSharedWithMe(),
-        ]);
-        const all = [...(myFiles || []), ...(sharedFiles || [])];
-        setFiles(all);
-        if (all.length > 0) setSelectedFile(all[0]);
-        console.log(all)
-      } catch (err) {
-        console.error("Error loading media files:", err);
+  const loadFiles = useCallback(async () => {
+    try {
+      setIsLoadingFiles(true);
+      setErrorMessage(null);
+      const [myFiles, sharedFiles] = await Promise.all([
+        mediaService.getMyFiles(),
+        mediaService.getSharedWithMe(),
+      ]);
+      const allFiles = [...(myFiles || []), ...(sharedFiles || [])] as MediaFile[];
+      setFiles(allFiles);
+      if (allFiles.length === 0) {
+        setSelectedAudioFile(null);
+        setSelectedVideoFile(null);
       }
-    };
-    fetchFiles();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "No se pudieron cargar los archivos multimedia.";
+      setErrorMessage(message);
+    } finally {
+      setIsLoadingFiles(false);
+    }
   }, []);
 
-  // ✅ Load FFmpeg core once
-  async function ensureFFmpegLoaded() {
-    if (!ffmpeg.loaded) {
-      await ffmpeg.load({
-        coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/ffmpeg-core.js",
-      });
-      console.log("✅ FFmpeg loaded");
+  useEffect(() => {
+    void loadFiles();
+  }, [loadFiles]);
+
+  useEffect(() => {
+    if (audioFiles.length === 0) {
+      setSelectedAudioFile(null);
+      return;
     }
-  }
+    if (!selectedAudioFile) {
+      setSelectedAudioFile(audioFiles[0]);
+      return;
+    }
+    const exists = audioFiles.some((file) => file.id === selectedAudioFile.id);
+    if (!exists) {
+      setSelectedAudioFile(audioFiles[0]);
+    }
+  }, [audioFiles, selectedAudioFile]);
+
+  useEffect(() => {
+    if (videoFiles.length === 0) {
+      setSelectedVideoFile(null);
+      return;
+    }
+    if (!selectedVideoFile) {
+      setSelectedVideoFile(videoFiles[0]);
+      return;
+    }
+    const exists = videoFiles.some((file) => file.id === selectedVideoFile.id);
+    if (!exists) {
+      setSelectedVideoFile(videoFiles[0]);
+    }
+  }, [videoFiles, selectedVideoFile]);
+
+  const resetAudioSettings = () => {
+    setAudioBitrate(192);
+    setAudioQuality(2);
+  };
+
+  const resetVideoSettings = () => {
+    setVideoBitrate(2500);
+    setVideoMaxWidth(1280);
+  };
+
+  const activeFiles = mode === "audio" ? audioFiles : videoFiles;
+  const selectedFile = mode === "audio" ? selectedAudioFile : selectedVideoFile;
+  const targetFormat = mode === "audio" ? audioTargetFormat : videoTargetFormat;
+  const selectedFormat = selectedFile ? getFileExtension(selectedFile.filename) : null;
+  const sameFormat = Boolean(selectedFile && selectedFormat === targetFormat);
+  const noFiles = activeFiles.length === 0;
+
+  const enqueueStatus = (
+    updater: (entry: ConversionEntry) => ConversionEntry,
+    id: string,
+  ) => {
+    setHistory((prev) =>
+      prev.map((entry) => (entry.id === id ? updater(entry) : entry)),
+    );
+  };
 
   const handleConvert = async () => {
     if (!selectedFile) {
-      console.warn("No file selected");
       return;
     }
 
-    const taskId = Date.now().toString();
-    const newTask: ConversionTask = {
-      id: taskId,
-      fileName: selectedFile.name,
-      fromFormat,
-      toFormat,
-      status: "pending",
-      progress: 0,
-      convertedSize: "--",
-      node: "Browser",
+    const entryId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : Date.now().toString();
+
+    const newEntry: ConversionEntry = {
+      id: entryId,
+      mode,
+      fileName: selectedFile.filename,
+      sourceFormat: selectedFormat ?? mode,
+      targetFormat,
+      bitrateKbps: mode === "audio" ? audioBitrate : videoBitrate,
+      quality: mode === "audio" ? audioQuality : undefined,
+      maxWidth: mode === "video" ? videoMaxWidth : undefined,
+      status: "processing",
+      startedAt: new Date(),
     };
-    setTasks((prev) => [newTask, ...prev]);
-    setLoading(true);
+
+    setHistory((prev) => [newEntry, ...prev]);
+    setIsConverting(true);
+    setErrorMessage(null);
 
     try {
-      await ensureFFmpegLoaded();
+      const response =
+        mode === "audio"
+          ? await mediaService.convertAudio(selectedFile.id, {
+              targetFormat,
+              bitrateKbps: audioBitrate,
+              quality: audioQuality,
+            })
+          : await mediaService.convertVideo(selectedFile.id, {
+              targetFormat,
+              bitrateKbps: videoBitrate,
+              maxWidth: videoMaxWidth,
+            });
 
-      const fileRef = ref(storage, selectedFile.storagePath);
-      const downloadURL = await getDownloadURL(fileRef);
-
-      setTasks((s) =>
-        s.map((t) =>
-          t.id === taskId ? { ...t, status: "processing", progress: 20 } : t
-        )
+      enqueueStatus(
+        (entry) => ({
+          ...entry,
+          status: "completed",
+          completedAt: new Date(),
+          resultFile: (response as { file?: MediaFile }).file,
+          message:
+            (response as { message?: string }).message ??
+            "Conversión completada",
+        }),
+        entryId,
       );
 
-      const inputName = `input.${fromFormat.toLowerCase()}`;
-      const outputName = `output.${toFormat.toLowerCase()}`;
-
-      // ✅ Fetch & write input file
-      const fileData = await fetchFile(downloadURL);
-      await ffmpeg.writeFile(inputName, fileData);
-
-      setTasks((s) =>
-        s.map((t) => (t.id === taskId ? { ...t, progress: 35 } : t))
+      await loadFiles();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "No se pudo completar la conversión.";
+      enqueueStatus(
+        (entry) => ({
+          ...entry,
+          status: "error",
+          completedAt: new Date(),
+          message,
+        }),
+        entryId,
       );
-
-      // ✅ Run conversion
-      await ffmpeg.exec(["-i", inputName, outputName]);
-
-      setTasks((s) =>
-        s.map((t) => (t.id === taskId ? { ...t, progress: 80 } : t))
-      );
-
-      // ✅ Read output
-      const outputData = await ffmpeg.readFile(outputName);
-      const blob = new Blob([outputData as Uint8Array], {
-        type:
-          mediaType === "video"
-            ? `video/${toFormat.toLowerCase()}`
-            : `audio/${toFormat.toLowerCase()}`,
-      });
-
-      const url = URL.createObjectURL(blob);
-
-      setTasks((s) =>
-        s.map((t) =>
-          t.id === taskId
-            ? {
-                ...t,
-                status: "completed",
-                progress: 100,
-                convertedSize: `${(blob.size / 1024 / 1024).toFixed(1)} MB`,
-                downloadUrl: url,
-              }
-            : t
-        )
-      );
-    } catch (err) {
-      console.error("Conversion failed:", err);
-      setTasks((s) =>
-        s.map((t) =>
-          t.id === taskId ? { ...t, status: "error", progress: 0 } : t
-        )
-      );
+      setErrorMessage(message);
     } finally {
-      setLoading(false);
+      setIsConverting(false);
     }
   };
 
-  const getStatusColor = (status: ConversionTask["status"]) => {
+  const handleDownload = async (file: MediaFile) => {
+    if (!file.id) {
+      return;
+    }
+    setDownloadingId(file.id);
+    try {
+      await mediaService.downloadFile(file.id, file.filename);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "No se pudo descargar el archivo convertido.";
+      setErrorMessage(message);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const formatStatusStyles = (status: ConversionEntry["status"]) => {
     switch (status) {
       case "completed":
         return "default";
@@ -198,186 +314,415 @@ export function FileConverter() {
   };
 
   return (
-    <div className="grid lg:grid-cols-2 gap-6">
-      {/* LEFT: Controls */}
+    <div className="grid gap-6 lg:grid-cols-2">
       <Card>
-        <CardHeader>
-          <CardTitle>Convertir Archivos</CardTitle>
-          <CardDescription>
-            Convierte archivos desde Firebase Storage en el navegador
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Media Type */}
-          <div className="space-y-2">
-            <label className="text-sm">Tipo de medio</label>
-            <div className="flex gap-2">
-              <Button
-                variant={mediaType === "audio" ? "default" : "outline"}
-                onClick={() => setMediaType("audio")}
-                className="flex-1"
-              >
-                <FileAudio className="w-4 h-4 mr-2" /> Audio
-              </Button>
-              <Button
-                variant={mediaType === "video" ? "default" : "outline"}
-                onClick={() => setMediaType("video")}
-                className="flex-1"
-              >
-                <FileVideo className="w-4 h-4 mr-2" /> Video
-              </Button>
+        <CardHeader className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle>Conversión multimedia en servidor</CardTitle>
+              <CardDescription>
+                Transcodifica audio o video desde Firebase Storage usando FFmpeg
+                distribuido.
+              </CardDescription>
+            </div>
+            <div className="rounded-md border bg-muted/60 p-1 text-xs font-medium">
+              Último modo: {mode === "audio" ? "Audio" : "Video"}
             </div>
           </div>
+          <div className="flex gap-2 rounded-md border bg-muted/30 p-1">
+            <Button
+              variant={mode === "audio" ? "default" : "ghost"}
+              className="flex-1"
+              onClick={() => setMode("audio")}
+            >
+              <FileAudio className="mr-2 h-4 w-4" />
+              Audio
+            </Button>
+            <Button
+              variant={mode === "video" ? "default" : "ghost"}
+              className="flex-1"
+              onClick={() => setMode("video")}
+            >
+              <FileVideo className="mr-2 h-4 w-4" />
+              Video
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-sm text-muted-foreground">
+                {mode === "audio"
+                  ? "Archivos de audio disponibles"
+                  : "Archivos de video disponibles"}
+              </p>
+              <p className="text-lg font-semibold">
+                {mode === "audio" ? audioFiles.length : videoFiles.length}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void loadFiles()}
+              disabled={isLoadingFiles}
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${isLoadingFiles ? "animate-spin" : ""}`}
+              />
+              Actualizar
+            </Button>
+          </div>
 
-          {/* File Select */}
+          {errorMessage && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4" />
+              <p>{errorMessage}</p>
+            </div>
+          )}
+
           <div className="space-y-2">
-            <label className="text-sm">Archivo (Firebase)</label>
+            <label className="text-sm font-medium">Archivo de origen</label>
             <Select
               value={selectedFile?.id ?? ""}
-              onValueChange={(val) => {
-                const found = files.find((f) => String(f.id) === val);
-                setSelectedFile(found ?? null);
+              onValueChange={(value) => {
+                const file = activeFiles.find((f) => String(f.id) === value);
+                if (mode === "audio") {
+                  setSelectedAudioFile(file ?? null);
+                } else {
+                  setSelectedVideoFile(file ?? null);
+                }
               }}
+              disabled={noFiles}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Seleccionar archivo" />
+                <SelectValue
+                  placeholder={
+                    mode === "audio"
+                      ? "Seleccionar archivo de audio"
+                      : "Seleccionar archivo de video"
+                  }
+                />
               </SelectTrigger>
-
               <SelectContent>
-                {files.length === 0 ? (
+                {activeFiles.length === 0 ? (
                   <SelectItem value="none" disabled>
-                    No se encontraron archivos
+                    {mode === "audio"
+                      ? "No hay archivos de audio disponibles"
+                      : "No hay archivos de video disponibles"}
                   </SelectItem>
                 ) : (
-                  files.map((f, i) => (
-                    <SelectItem key={f.id ?? i} value={String(f.id ?? i)}>
-                      {f.filename ||
-                        f.storagePath?.split("/").pop() ||
-                        "Archivo sin nombre"}
+                  activeFiles.map((file) => (
+                    <SelectItem key={file.id} value={file.id}>
+                      {file.filename}
                     </SelectItem>
                   ))
                 )}
               </SelectContent>
             </Select>
+            {selectedFile && (
+              <p className="text-xs text-muted-foreground">
+                Formato actual:{" "}
+                <span className="uppercase">
+                  {selectedFormat ?? selectedFile.contentType ?? "desconocido"}
+                </span>{" "}
+                · Tamaño:{" "}
+                {selectedFile.size
+                  ? `${(selectedFile.size / 1024 / 1024).toFixed(2)} MB`
+                  : "N/D"}
+              </p>
+            )}
           </div>
 
-          {/* Format selectors */}
-          <div className="grid grid-cols-[1fr,auto,1fr] gap-4 items-end">
-            <div className="space-y-2">
-              <label className="text-sm">Formato origen</label>
-              <Select value={fromFormat} onValueChange={setFromFormat}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Origen" />
-                </SelectTrigger>
-                <SelectContent>
-                  {formats.map((fmt) => (
-                    <SelectItem key={fmt} value={fmt}>
-                      {fmt}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Formato destino</label>
+            <Select
+              value={targetFormat}
+              onValueChange={(value) =>
+                mode === "audio"
+                  ? setAudioTargetFormat(value)
+                  : setVideoTargetFormat(value)
+              }
+              disabled={noFiles}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar formato" />
+              </SelectTrigger>
+              <SelectContent>
+                {(mode === "audio" ? audioFormats : videoFormats).map((format) => (
+                  <SelectItem key={format} value={format}>
+                    {format.toUpperCase()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {sameFormat && (
+              <p className="text-xs text-amber-600">
+                El archivo ya está en formato {targetFormat.toUpperCase()}.
+                Selecciona otro formato para continuar.
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-4 rounded-lg border p-4">
+            <div className="flex items-center gap-2">
+              <Settings2 className="h-4 w-4 text-muted-foreground" />
+              <p className="text-sm font-medium">Parámetros de salida</p>
             </div>
 
-            <ArrowRight className="w-5 h-5 text-gray-400 mb-3" />
-
-            <div className="space-y-2">
-              <label className="text-sm">Formato destino</label>
-              <Select value={toFormat} onValueChange={setToFormat}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Destino" />
-                </SelectTrigger>
-                <SelectContent>
-                  {formats.map((fmt) => (
-                    <SelectItem key={fmt} value={fmt}>
-                      {fmt}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {mode === "audio" ? (
+              <>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>Bitrate</span>
+                    <span className="font-semibold">{audioBitrate} kbps</span>
+                  </div>
+                  <Slider
+                    value={[audioBitrate]}
+                    min={AUDIO_BITRATE_RANGE.min}
+                    max={AUDIO_BITRATE_RANGE.max}
+                    step={16}
+                    onValueChange={(values) => {
+                      if (values[0]) {
+                        setAudioBitrate(Math.round(values[0]));
+                      }
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Valores recomendados: 128 kbps (normal), 192 kbps (alta
+                    fidelidad), 256+ kbps (máxima calidad).
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>Calidad (VBR)</span>
+                    <span className="font-semibold">Nivel {audioQuality}</span>
+                  </div>
+                  <Slider
+                    value={[audioQuality]}
+                    min={QUALITY_RANGE.min}
+                    max={QUALITY_RANGE.max}
+                    step={1}
+                    onValueChange={(values) => {
+                      if (values[0] !== undefined) {
+                        setAudioQuality(Math.round(values[0]));
+                      }
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    0 = mejor calidad / mayor tamaño. 9 = menor calidad / menor
+                    tamaño.
+                  </p>
+                </div>
+                <div className="flex justify-end">
+                  <Button variant="ghost" size="sm" onClick={resetAudioSettings}>
+                    Restaurar valores
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>Bitrate de video</span>
+                    <span className="font-semibold">{videoBitrate} kbps</span>
+                  </div>
+                  <Slider
+                    value={[videoBitrate]}
+                    min={VIDEO_BITRATE_RANGE.min}
+                    max={VIDEO_BITRATE_RANGE.max}
+                    step={100}
+                    onValueChange={(values) => {
+                      if (values[0]) {
+                        setVideoBitrate(Math.round(values[0]));
+                      }
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Reduce el bitrate para comprimir. 2500 kbps ≈ HD, 5000 kbps ≈
+                    Full HD.
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  <label className="text-sm font-medium">
+                    Reducción de ancho máximo
+                  </label>
+                  <Select
+                    value={videoMaxWidth === null ? "original" : String(videoMaxWidth)}
+                    onValueChange={(value) => {
+                      if (value === "original") {
+                        setVideoMaxWidth(null);
+                        return;
+                      }
+                      const num = Number(value);
+                      setVideoMaxWidth(Number.isNaN(num) ? null : num);
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Mantener resolución original" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VIDEO_WIDTH_OPTIONS.map((option) => (
+                        <SelectItem
+                          key={option.label}
+                          value={
+                            option.value === null ? "original" : String(option.value)
+                          }
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Limitar el ancho ayuda a reducir el tamaño del archivo manteniendo
+                    la relación de aspecto.
+                  </p>
+                </div>
+                <div className="flex justify-end">
+                  <Button variant="ghost" size="sm" onClick={resetVideoSettings}>
+                    Restaurar valores
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
 
           <Button
-            onClick={handleConvert}
-            disabled={loading || !selectedFile}
             className="w-full"
+            onClick={() => void handleConvert()}
+            disabled={isConverting || !selectedFile || sameFormat || noFiles}
           >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            {loading ? "Procesando..." : "Iniciar Conversión"}
+            <RefreshCw
+              className={`mr-2 h-4 w-4 ${isConverting ? "animate-spin" : ""}`}
+            />
+            {isConverting ? "Convirtiendo..." : "Iniciar conversión"}
           </Button>
+
+          {noFiles && (
+            <div className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+              {mode === "audio" ? (
+                <FileAudio className="h-4 w-4" />
+              ) : (
+                <FileVideo className="h-4 w-4" />
+              )}
+              {mode === "audio"
+                ? "Sube un archivo de audio en la pestaña “Reproductor” para habilitar el convertidor."
+                : "Sube un archivo de video para habilitar la conversión con compresión."}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* RIGHT: Tasks */}
       <Card>
         <CardHeader>
-          <CardTitle>Tareas de Conversión</CardTitle>
+          <CardTitle>Historial de conversiones</CardTitle>
           <CardDescription>
-            Estado de conversiones en el navegador
+            Seguimiento de conversiones ejecutadas en el clúster de MediaStream.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {tasks.length === 0 && (
-              <p className="text-sm text-gray-500">No hay tareas</p>
-            )}
+        <CardContent className="space-y-4">
+          {history.length === 0 && (
+            <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+              Aún no hay conversiones. Selecciona un archivo y presiona “Iniciar
+              conversión”.
+            </div>
+          )}
 
-            {tasks.map((t) => (
-              <div key={t.id} className="p-4 border rounded-lg space-y-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="font-medium">{t.fileName}</p>
-                    <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
-                      <span>
-                        {t.fromFormat} → {t.toFormat}
-                      </span>
-                      <Badge variant="outline">{t.node}</Badge>
-                    </div>
+          {history.map((entry) => (
+            <div key={entry.id} className="space-y-3 rounded-lg border p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold">{entry.fileName}</p>
+                    <Badge variant="outline" className="uppercase">
+                      {entry.mode}
+                    </Badge>
                   </div>
-                  <Badge variant={getStatusColor(t.status)}>
-                    {t.status === "completed" && (
-                      <CheckCircle className="w-3 h-3 mr-1" />
-                    )}
-                    {t.status === "processing" && (
-                      <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
-                    )}
-                    {t.status}
-                  </Badge>
+                  <p className="text-sm text-muted-foreground">
+                    {entry.sourceFormat?.toUpperCase()} →{" "}
+                    {entry.targetFormat.toUpperCase()}
+                  </p>
                 </div>
+                <Badge variant={formatStatusStyles(entry.status)}>
+                  {entry.status === "completed" && (
+                    <CheckCircle className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  {entry.status === "processing" && (
+                    <RefreshCw className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  )}
+                  {entry.status}
+                </Badge>
+              </div>
 
-                {t.status !== "completed" && (
-                  <div className="space-y-1">
-                    <Progress value={t.progress} />
-                    <p className="text-xs text-gray-500">
-                      {t.progress}% completado
+              <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                <p>
+                  Bitrate:{" "}
+                  {entry.bitrateKbps ? `${entry.bitrateKbps} kbps` : "N/D"}
+                </p>
+                {entry.mode === "audio" ? (
+                  <p>Calidad VBR: {entry.quality ?? "N/D"}</p>
+                ) : (
+                  <p>
+                    Máx. ancho:{" "}
+                    {entry.maxWidth ? `${entry.maxWidth}px` : "Original"}
+                  </p>
+                )}
+                <p>
+                  Inicio:{" "}
+                  {entry.startedAt.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+                <p>
+                  {entry.completedAt
+                    ? `Fin: ${entry.completedAt.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}`
+                    : "Procesando..."}
+                </p>
+              </div>
+
+              {entry.status === "processing" && <Progress value={70} />}
+
+              {entry.message && (
+                <p
+                  className={`text-sm ${
+                    entry.status === "error"
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {entry.message}
+                </p>
+              )}
+
+              {entry.resultFile && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-muted/40 p-3 text-sm">
+                  <div>
+                    <p className="font-medium">{entry.resultFile.filename}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(entry.resultFile.size
+                        ? (entry.resultFile.size / 1024 / 1024).toFixed(2)
+                        : "N/D") + " MB"}
                     </p>
                   </div>
-                )}
-
-                {t.downloadUrl && (
-                  <div className="flex justify-end">
-                    <a
-                      href={t.downloadUrl}
-                      download={t.fileName.replace(
-                        /\.\w+$/,
-                        `.${t.toFormat.toLowerCase()}`
-                      )}
-                      className="inline-flex items-center gap-2 text-blue-600"
-                    >
-                      <Download className="w-4 h-4" /> Descargar
-                    </a>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">
-                    Tamaño convertido: {t.convertedSize}
-                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleDownload(entry.resultFile!)}
+                    disabled={downloadingId === entry.resultFile.id}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    {downloadingId === entry.resultFile.id
+                      ? "Descargando..."
+                      : "Descargar"}
+                  </Button>
                 </div>
-              </div>
-            ))}
-          </div>
+              )}
+            </div>
+          ))}
         </CardContent>
       </Card>
     </div>

@@ -16,6 +16,8 @@ export const API_CONFIG = {
       SHARE: (fileId: string) => `/media/${fileId}/share`,
       DELETE: (fileId: string) => `/media/${fileId}`,
       DOWNLOAD: (fileId: string) => `/media/${fileId}/download`,
+      CONVERT: (fileId: string) => `/media/${fileId}/convert`,
+      CONVERT_VIDEO: (fileId: string) => `/media/${fileId}/convert/video`,
     },
     HEALTH: '/health',
   },
