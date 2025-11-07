@@ -1,10 +1,15 @@
 import { Timestamp } from 'firebase-admin/firestore';
 
+export type MediaConversionType = 'audio' | 'video';
+
 export interface MediaConversionMetadata {
+  type: MediaConversionType;
   sourceFileId: string;
   targetFormat: string;
-  bitrateKbps: number;
+  bitrateKbps?: number;
   quality?: number;
+  maxWidth?: number;
+  maxHeight?: number;
 }
 
 export interface MediaFile {

@@ -10,12 +10,16 @@ import {
     HttpSuccessStatusCodes, 
     USER_ROLES,
     AUDIO_FORMATS,
-    AUDIO_CONVERSION_LIMITS
+    AUDIO_CONVERSION_LIMITS,
+    VIDEO_FORMATS,
+    VIDEO_CONVERSION_LIMITS
 } from '../constants';
 import { MediaFile } from '../models/MediaModel'; 
 import { convertAudioFile } from '../services/audioConversion.service';
 import type { AudioConversionOptions } from '../services/audioConversion.service';
-import type { AudioFormat } from '../constants';
+import type { AudioFormat, VideoFormat } from '../constants';
+import { convertVideoFile } from '../services/videoConversion.service';
+import type { VideoConversionOptions } from '../services/videoConversion.service';
 
 export const mediaRouter = Router();
 const upload = multer({
@@ -212,6 +216,101 @@ mediaRouter.post('/:fileId/convert', async (req, res) => {
     });
   } catch (error) {
     console.error('Error converting audio file:', error);
+    return res.status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR).send({ message: 'Internal Server Error' });
+  }
+});
+
+mediaRouter.post('/:fileId/convert/video', async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const currentUserId = req.user?.id;
+    const currentUserRole = req.user?.role;
+    const currentUsername = req.user?.username || 'unknown';
+
+    if (!currentUserId) {
+      return res.status(HttpErrorStatusCodes.UNAUTHORIZED).send({ message: 'User not authenticated.' });
+    }
+
+    const { targetFormat, bitrateKbps, maxWidth, maxHeight } = req.body ?? {};
+
+    if (!targetFormat || typeof targetFormat !== 'string') {
+      return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({ message: 'targetFormat is required.' });
+    }
+
+    const normalizedFormat = targetFormat.toLowerCase() as VideoFormat;
+    if (!VIDEO_FORMATS.includes(normalizedFormat)) {
+      return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({ message: 'Unsupported video format requested.' });
+    }
+
+    const parsedBitrate = parseOptionalNumber(bitrateKbps);
+    if (parsedBitrate !== undefined) {
+      if (
+        parsedBitrate < VIDEO_CONVERSION_LIMITS.MIN_BITRATE_KBPS ||
+        parsedBitrate > VIDEO_CONVERSION_LIMITS.MAX_BITRATE_KBPS
+      ) {
+        return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({
+          message: `Bitrate must be between ${VIDEO_CONVERSION_LIMITS.MIN_BITRATE_KBPS} and ${VIDEO_CONVERSION_LIMITS.MAX_BITRATE_KBPS} kbps.`,
+        });
+      }
+    }
+
+    const parsedMaxWidth = parseOptionalNumber(maxWidth);
+    if (parsedMaxWidth !== undefined) {
+      if (
+        parsedMaxWidth < VIDEO_CONVERSION_LIMITS.MIN_WIDTH ||
+        parsedMaxWidth > VIDEO_CONVERSION_LIMITS.MAX_WIDTH
+      ) {
+        return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({
+          message: `maxWidth must be between ${VIDEO_CONVERSION_LIMITS.MIN_WIDTH} and ${VIDEO_CONVERSION_LIMITS.MAX_WIDTH} pixels.`,
+        });
+      }
+    }
+
+    const parsedMaxHeight = parseOptionalNumber(maxHeight);
+    if (parsedMaxHeight !== undefined && parsedMaxHeight <= 0) {
+      return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({
+        message: 'maxHeight must be a positive number.',
+      });
+    }
+
+    const fileRef = dbConfig.db.collection(COLLECTIONS_NAMES.MEDIA_FILES).doc(fileId);
+    const fileDoc = await fileRef.get();
+
+    if (!fileDoc.exists) {
+      return res.status(HttpErrorStatusCodes.NOT_FOUND).send({ message: 'File not found.' });
+    }
+
+    const fileData = fileDoc.data() as MediaFile;
+    const isOwner = fileData.ownerId === currentUserId;
+    const isAdmin = currentUserRole === USER_ROLES.ADMIN;
+
+    if (!isOwner && !isAdmin) {
+      return res.status(HttpErrorStatusCodes.FORBIDDEN).send({ message: 'You do not have permission to convert this file.' });
+    }
+
+    if (!fileData.contentType?.startsWith('video/')) {
+      return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({ message: 'Only video files can be converted using this endpoint.' });
+    }
+
+    const convertedFile = await convertVideoFile({
+      fileId,
+      mediaFile: fileData,
+      ownerId: currentUserId,
+      ownerUsername: currentUsername,
+      options: {
+        targetFormat: normalizedFormat as VideoConversionOptions['targetFormat'],
+        videoBitrateKbps: parsedBitrate,
+        maxWidth: parsedMaxWidth,
+        maxHeight: parsedMaxHeight,
+      },
+    });
+
+    return res.status(HttpSuccessStatusCodes.CREATED).send({
+      message: 'Video converted successfully.',
+      file: convertedFile,
+    });
+  } catch (error) {
+    console.error('Error converting video file:', error);
     return res.status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR).send({ message: 'Internal Server Error' });
   }
 });

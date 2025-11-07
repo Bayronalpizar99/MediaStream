@@ -39,12 +39,16 @@ import {
   SESSION_TIMEOUTS,
   SESSION_HEADERS
 } from './session.constants';
-import type { AudioFormat } from './media.constants';
+import type { AudioFormat, VideoFormat } from './media.constants';
 import {
   AUDIO_FORMATS,
   AUDIO_MIME_TYPES,
   AUDIO_CONVERSION_DEFAULTS,
-  AUDIO_CONVERSION_LIMITS
+  AUDIO_CONVERSION_LIMITS,
+  VIDEO_FORMATS,
+  VIDEO_MIME_TYPES,
+  VIDEO_CONVERSION_DEFAULTS,
+  VIDEO_CONVERSION_LIMITS
 } from './media.constants';
 
 export {
@@ -82,9 +86,14 @@ export {
   AUDIO_FORMATS,
   AUDIO_MIME_TYPES,
   AUDIO_CONVERSION_DEFAULTS,
-  AUDIO_CONVERSION_LIMITS
+  AUDIO_CONVERSION_LIMITS,
+  VIDEO_FORMATS,
+  VIDEO_MIME_TYPES,
+  VIDEO_CONVERSION_DEFAULTS,
+  VIDEO_CONVERSION_LIMITS
 };
 
 export type {
-  AudioFormat
+  AudioFormat,
+  VideoFormat
 };

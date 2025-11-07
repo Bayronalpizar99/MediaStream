@@ -126,6 +126,34 @@ const convertAudio = async (fileId: string, payload: AudioConversionPayload) => 
   return data;
 };
 
+interface VideoConversionPayload {
+  targetFormat: string;
+  bitrateKbps?: number;
+  maxWidth?: number | null;
+  maxHeight?: number | null;
+}
+
+const convertVideo = async (fileId: string, payload: VideoConversionPayload) => {
+  const response = await fetch(getApiUrl(API_CONFIG.ENDPOINTS.MEDIA.CONVERT_VIDEO(fileId)), {
+    method: HTTP_METHODS.POST,
+    headers: {
+      ...authService.getSessionHeaders(),
+      'Content-Type': CONTENT_TYPES.JSON,
+      'Accept': CONTENT_TYPES.JSON,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message = (data as { message?: string } | null)?.message ?? 'Error converting video file';
+    throw new Error(message);
+  }
+
+  return data;
+};
+
 export const mediaService = {
   getMyFiles,
   getSharedWithMe,
@@ -134,4 +162,5 @@ export const mediaService = {
   deleteFile,
   downloadFile,
   convertAudio,
+  convertVideo,
 };

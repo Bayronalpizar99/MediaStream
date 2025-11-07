@@ -17,6 +17,7 @@ export const API_CONFIG = {
       DELETE: (fileId: string) => `/media/${fileId}`,
       DOWNLOAD: (fileId: string) => `/media/${fileId}/download`,
       CONVERT: (fileId: string) => `/media/${fileId}/convert`,
+      CONVERT_VIDEO: (fileId: string) => `/media/${fileId}/convert/video`,
     },
     HEALTH: '/health',
   },

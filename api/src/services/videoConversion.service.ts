@@ -9,29 +9,30 @@ import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import admin from 'firebase-admin';
 import dbConfig from '../config';
 import {
-  AUDIO_CONVERSION_DEFAULTS,
-  AUDIO_MIME_TYPES,
+  VIDEO_CONVERSION_DEFAULTS,
+  VIDEO_MIME_TYPES,
   COLLECTIONS_NAMES,
 } from '../constants';
-import type { AudioFormat } from '../constants';
+import type { VideoFormat } from '../constants';
 import { MediaFile } from '../models/MediaModel';
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
-const TMP_PREFIX = 'media-convert-';
+const TMP_PREFIX = 'media-video-convert-';
 
-export interface AudioConversionOptions {
-  targetFormat: AudioFormat;
-  bitrateKbps?: number;
-  quality?: number;
+export interface VideoConversionOptions {
+  targetFormat: VideoFormat;
+  videoBitrateKbps?: number;
+  maxWidth?: number;
+  maxHeight?: number;
 }
 
-interface ConvertAudioParams {
+interface ConvertVideoParams {
   fileId: string;
   mediaFile: MediaFile;
   ownerId: string;
   ownerUsername: string;
-  options: AudioConversionOptions;
+  options: VideoConversionOptions;
 }
 
 const downloadToTemp = async (storagePath: string, destination: string) => {
@@ -39,19 +40,41 @@ const downloadToTemp = async (storagePath: string, destination: string) => {
   await pipeline(file.createReadStream(), createWriteStream(destination));
 };
 
+const buildScaleFilter = (maxWidth?: number, maxHeight?: number): string | null => {
+  if (!maxWidth && !maxHeight) {
+    return null;
+  }
+  if (maxWidth && maxHeight) {
+    return `scale='min(${maxWidth},iw)':'min(${maxHeight},ih)'`;
+  }
+  if (maxWidth) {
+    return `scale='min(${maxWidth},iw)':-2`;
+  }
+  return `scale=-2:'min(${maxHeight},ih)'`;
+};
+
 const runFfmpegConversion = async (
   inputPath: string,
   outputPath: string,
-  options: Required<AudioConversionOptions>,
+  options: {
+    targetFormat: VideoFormat;
+    videoBitrateKbps: number;
+    maxWidth?: number;
+    maxHeight?: number;
+  },
 ) => {
   await new Promise<void>((resolve, reject) => {
     const command = ffmpeg(inputPath)
-      .audioBitrate(`${options.bitrateKbps}k`)
+      .videoBitrate(`${options.videoBitrateKbps}k`)
       .format(options.targetFormat)
-      .outputOptions('-vn'); // strip video streams just in case
+      .audioBitrate('160k')
+      .outputOptions('-movflags', 'faststart')
+      .outputOptions('-preset', 'fast')
+      .outputOptions('-pix_fmt', 'yuv420p');
 
-    if (typeof options.quality === 'number') {
-      command.audioQuality(options.quality);
+    const scaleFilter = buildScaleFilter(options.maxWidth, options.maxHeight);
+    if (scaleFilter) {
+      command.videoFilters(scaleFilter);
     }
 
     command
@@ -61,19 +84,20 @@ const runFfmpegConversion = async (
   });
 };
 
-export const convertAudioFile = async ({
+export const convertVideoFile = async ({
   fileId,
   mediaFile,
   ownerId,
   ownerUsername,
   options,
-}: ConvertAudioParams) => {
+}: ConvertVideoParams) => {
   const normalizedFormat = options.targetFormat;
-  const bitrateKbps = options.bitrateKbps ?? AUDIO_CONVERSION_DEFAULTS.BITRATE_KBPS;
-  const quality = options.quality ?? AUDIO_CONVERSION_DEFAULTS.QUALITY;
+  const videoBitrate = options.videoBitrateKbps ?? VIDEO_CONVERSION_DEFAULTS.BITRATE_KBPS;
+  const maxWidth = options.maxWidth ?? VIDEO_CONVERSION_DEFAULTS.MAX_WIDTH;
+  const maxHeight = options.maxHeight;
 
   const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), TMP_PREFIX));
-  const inputPath = path.join(tempDir, `original-${uuidv4()}`);
+  const inputPath = path.join(tempDir, `source-${uuidv4()}`);
   const convertedFilename = `${path.parse(mediaFile.filename).name}-${normalizedFormat}-${Date.now()}.${normalizedFormat}`;
   const outputPath = path.join(tempDir, convertedFilename);
 
@@ -82,14 +106,15 @@ export const convertAudioFile = async ({
 
     await runFfmpegConversion(inputPath, outputPath, {
       targetFormat: normalizedFormat,
-      bitrateKbps,
-      quality,
+      videoBitrateKbps: videoBitrate,
+      maxWidth,
+      maxHeight,
     });
 
     const { size } = await fsPromises.stat(outputPath);
     const newFileId = uuidv4();
     const storagePath = `conversions/${ownerId}/${newFileId}/${convertedFilename}`;
-    const contentType = AUDIO_MIME_TYPES[normalizedFormat] ?? `audio/${normalizedFormat}`;
+    const contentType = VIDEO_MIME_TYPES[normalizedFormat] ?? `video/${normalizedFormat}`;
 
     await dbConfig.storage.upload(outputPath, {
       destination: storagePath,
@@ -97,6 +122,21 @@ export const convertAudioFile = async ({
         contentType,
       },
     });
+
+    const conversionMetadata: MediaFile['conversion'] = {
+      type: 'video',
+      sourceFileId: fileId,
+      targetFormat: normalizedFormat,
+      bitrateKbps: videoBitrate,
+    };
+
+    if (typeof maxWidth === 'number') {
+      conversionMetadata.maxWidth = maxWidth;
+    }
+
+    if (typeof maxHeight === 'number') {
+      conversionMetadata.maxHeight = maxHeight;
+    }
 
     const convertedFile: MediaFile = {
       filename: convertedFilename,
@@ -107,13 +147,7 @@ export const convertAudioFile = async ({
       ownerUsername,
       createdAt: admin.firestore.Timestamp.now(),
       sharedWith: [],
-      conversion: {
-        type: 'audio',
-        sourceFileId: fileId,
-        targetFormat: normalizedFormat,
-        bitrateKbps,
-        quality,
-      },
+      conversion: conversionMetadata,
     };
 
     await dbConfig.db

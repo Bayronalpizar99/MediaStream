@@ -21,3 +21,25 @@ export const AUDIO_CONVERSION_LIMITS = {
   MIN_QUALITY: 0,
   MAX_QUALITY: 9,
 } as const;
+
+export const VIDEO_FORMATS = ['mp4', 'avi', 'mkv'] as const;
+
+export type VideoFormat = typeof VIDEO_FORMATS[number];
+
+export const VIDEO_MIME_TYPES: Record<VideoFormat, string> = {
+  mp4: 'video/mp4',
+  avi: 'video/x-msvideo',
+  mkv: 'video/x-matroska',
+};
+
+export const VIDEO_CONVERSION_DEFAULTS = {
+  BITRATE_KBPS: 2500,
+  MAX_WIDTH: 1280,
+} as const;
+
+export const VIDEO_CONVERSION_LIMITS = {
+  MIN_BITRATE_KBPS: 500,
+  MAX_BITRATE_KBPS: 8000,
+  MIN_WIDTH: 320,
+  MAX_WIDTH: 3840,
+} as const;
