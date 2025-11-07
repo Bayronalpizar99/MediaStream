@@ -4,88 +4,46 @@ import { Progress } from './ui/progress';
 import { Badge } from './ui/badge';
 import { Server, Cpu, HardDrive, Activity, AlertTriangle, CheckCircle } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import { nodeService, type NodeStatus as ApiNodeStatus } from '../services/nodeService';
+import { Button } from './ui/button';
 
-interface NodeStatus {
-  id: string;
-  name: string;
-  status: 'online' | 'offline' | 'warning';
-  cpu: number;
-  ram: number;
-  storage: number;
-  network: number;
-  tasks: number;
-  location: string;
-  uptime: string;
-}
+type NodeStatus = ApiNodeStatus & {
+  metrics: NonNullable<ApiNodeStatus['metrics']>;
+};
 
-const initialNodes: NodeStatus[] = [
-  {
-    id: '1',
-    name: 'Node-01',
-    status: 'online',
-    cpu: 45,
-    ram: 62,
-    storage: 78,
-    network: 23,
-    tasks: 3,
-    location: 'US-East',
-    uptime: '15d 8h',
+const normalizeMetrics = (node: ApiNodeStatus): NodeStatus => ({
+  ...node,
+  metrics: {
+    cpu: node.metrics?.cpu ?? 0,
+    ram: node.metrics?.ram ?? 0,
+    tasks: node.metrics?.tasks ?? 0,
+    uptimeSeconds: node.metrics?.uptimeSeconds ?? 0,
   },
-  {
-    id: '2',
-    name: 'Node-02',
-    status: 'online',
-    cpu: 78,
-    ram: 85,
-    storage: 45,
-    network: 67,
-    tasks: 7,
-    location: 'EU-West',
-    uptime: '8d 12h',
-  },
-  {
-    id: '3',
-    name: 'Node-03',
-    status: 'warning',
-    cpu: 92,
-    ram: 95,
-    storage: 88,
-    network: 89,
-    tasks: 12,
-    location: 'Asia-East',
-    uptime: '22d 4h',
-  },
-  {
-    id: '4',
-    name: 'Node-04',
-    status: 'online',
-    cpu: 34,
-    ram: 48,
-    storage: 56,
-    network: 12,
-    tasks: 2,
-    location: 'US-West',
-    uptime: '5d 16h',
-  },
-];
+});
 
 export function NodeMonitor() {
-  const [nodes, setNodes] = useState<NodeStatus[]>(initialNodes);
+  const [nodes, setNodes] = useState<NodeStatus[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadNodes = async () => {
+    try {
+      setError(null);
+      const data = await nodeService.getNodes();
+      setNodes(data.map(normalizeMetrics));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'No se pudo cargar el estado de los nodos';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
+    void loadNodes();
     const interval = setInterval(() => {
-      setNodes((prevNodes) =>
-        prevNodes.map((node) => ({
-          ...node,
-          cpu: Math.min(100, Math.max(0, node.cpu + (Math.random() - 0.5) * 10)),
-          ram: Math.min(100, Math.max(0, node.ram + (Math.random() - 0.5) * 8)),
-          network: Math.min(100, Math.max(0, node.network + (Math.random() - 0.5) * 15)),
-          status:
-            node.cpu > 90 || node.ram > 90 ? 'warning' : 'online',
-        }))
-      );
-    }, 2000);
-
+      void loadNodes();
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -117,6 +75,23 @@ export function NodeMonitor() {
     return 'bg-green-500';
   };
 
+  const totalActive = nodes.filter((n) => n.status === 'online').length;
+  const totalTasks = nodes.reduce((acc, n) => acc + (n.metrics.tasks ?? 0), 0);
+  const avgCpu = nodes.length
+    ? Math.round(nodes.reduce((acc, n) => acc + (n.metrics.cpu ?? 0), 0) / nodes.length)
+    : 0;
+  const totalAlerts = nodes.filter((n) => n.status !== 'online').length;
+
+  const formatUptime = (seconds: number) => {
+    if (!seconds) return 'N/D';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const days = Math.floor(hours / 24);
+    if (days > 0) return `${days}d ${hours % 24}h`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+  };
+
   return (
     <div className="space-y-6">
       <div className="relative h-48 rounded-lg overflow-hidden">
@@ -135,13 +110,31 @@ export function NodeMonitor() {
         </div>
       </div>
 
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-xl font-semibold">Estado global</h3>
+          <p className="text-sm text-muted-foreground">
+            Monitoreo del coordinador y microservicios dedicados
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void loadNodes()} disabled={loading}>
+          Actualizar
+        </Button>
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Nodos Activos</p>
-                <p className="text-3xl mt-1">{nodes.filter((n) => n.status === 'online').length}</p>
+                <p className="text-3xl mt-1">{totalActive}</p>
               </div>
               <Server className="w-8 h-8 text-green-500" />
             </div>
@@ -153,7 +146,7 @@ export function NodeMonitor() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Tareas Totales</p>
-                <p className="text-3xl mt-1">{nodes.reduce((acc, n) => acc + n.tasks, 0)}</p>
+                <p className="text-3xl mt-1">{totalTasks}</p>
               </div>
               <Activity className="w-8 h-8 text-blue-500" />
             </div>
@@ -166,7 +159,7 @@ export function NodeMonitor() {
               <div>
                 <p className="text-sm text-gray-500">CPU Promedio</p>
                 <p className="text-3xl mt-1">
-                  {Math.round(nodes.reduce((acc, n) => acc + n.cpu, 0) / nodes.length)}%
+                  {nodes.length ? `${avgCpu}%` : 'N/D'}
                 </p>
               </div>
               <Cpu className="w-8 h-8 text-purple-500" />
@@ -179,7 +172,7 @@ export function NodeMonitor() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Alertas</p>
-                <p className="text-3xl mt-1">{nodes.filter((n) => n.status === 'warning').length}</p>
+                <p className="text-3xl mt-1">{totalAlerts}</p>
               </div>
               <AlertTriangle className="w-8 h-8 text-yellow-500" />
             </div>
@@ -188,7 +181,13 @@ export function NodeMonitor() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        {nodes.map((node) => (
+        {nodes.map((node) => {
+          const cpuValue = Math.min(100, Math.round(node.metrics.cpu ?? 0));
+          const ramValue = Math.min(100, Math.round(node.metrics.ram ?? node.metrics.cpu ?? 0));
+          const taskLoad = Math.min(100, (node.metrics.tasks ?? 0) * 10);
+          const uptime = formatUptime(node.metrics.uptimeSeconds ?? 0);
+
+          return (
           <Card key={node.id}>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -202,7 +201,7 @@ export function NodeMonitor() {
                 </Badge>
               </div>
               <CardDescription>
-                {node.location} • Uptime: {node.uptime} • {node.tasks} tareas activas
+                Rol: {node.role} • {node.location ?? 'local'} • Uptime: {uptime}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -210,57 +209,52 @@ export function NodeMonitor() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2">
                     <Cpu className="w-4 h-4" />
-                    CPU
+                    CPU actual
                   </span>
-                  <span>{Math.round(node.cpu)}%</span>
+                  <span>{cpuValue}%</span>
                 </div>
-                <Progress value={node.cpu} className={getProgressColor(node.cpu)} />
+                <Progress value={cpuValue} className={getProgressColor(cpuValue)} />
               </div>
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2">
                     <HardDrive className="w-4 h-4" />
-                    RAM
+                    Uso de memoria
                   </span>
-                  <span>{Math.round(node.ram)}%</span>
+                  <span>{ramValue}%</span>
                 </div>
-                <Progress value={node.ram} className={getProgressColor(node.ram)} />
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-2">
-                    <HardDrive className="w-4 h-4" />
-                    Storage
-                  </span>
-                  <span>{Math.round(node.storage)}%</span>
-                </div>
-                <Progress value={node.storage} className={getProgressColor(node.storage)} />
+                <Progress value={ramValue} className={getProgressColor(ramValue)} />
               </div>
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2">
                     <Activity className="w-4 h-4" />
-                    Network
+                    Carga de tareas
                   </span>
-                  <span>{Math.round(node.network)}%</span>
+                  <span>{Math.round(taskLoad)}%</span>
                 </div>
-                <Progress value={node.network} className={getProgressColor(node.network)} />
+                <Progress value={taskLoad} className={getProgressColor(taskLoad)} />
               </div>
 
-              {node.status === 'warning' && (
+              {node.status !== 'online' && (
                 <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <p className="text-sm text-yellow-800 flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4" />
-                    Recursos cercanos al límite. Considerar redistribución de tareas.
+                    Recursos fuera de umbral. Verifica la asignación de tareas en este nodo.
                   </p>
                 </div>
               )}
             </CardContent>
           </Card>
-        ))}
+        );
+      })}
+        {nodes.length === 0 && !loading && (
+          <div className="md:col-span-2 rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+            No hay nodos registrados aún. Verifica que los microservicios se hayan levantado y registrado con el coordinador.
+          </div>
+        )}
       </div>
     </div>
   );

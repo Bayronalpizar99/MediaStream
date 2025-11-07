@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { Readable } from 'node:stream';
+import { ReadableStream as NodeReadableStream } from 'stream/web';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid'; 
 import admin from 'firebase-admin';
@@ -15,11 +17,8 @@ import {
     VIDEO_CONVERSION_LIMITS
 } from '../constants';
 import { MediaFile } from '../models/MediaModel'; 
-import { convertAudioFile } from '../services/audioConversion.service';
-import type { AudioConversionOptions } from '../services/audioConversion.service';
 import type { AudioFormat, VideoFormat } from '../constants';
-import { convertVideoFile } from '../services/videoConversion.service';
-import type { VideoConversionOptions } from '../services/videoConversion.service';
+import { callNodeService, NodeUnavailableError, openNodeStream } from '../services/nodeClient';
 
 export const mediaRouter = Router();
 const upload = multer({
@@ -51,17 +50,27 @@ mediaRouter.get('/:fileId/download', async (req, res) => {
       return res.status(HttpErrorStatusCodes.FORBIDDEN).send({ message: 'You do not have permission to download this file.' });
     }
 
-    const bucketFile = dbConfig.storage.file(fileData.storagePath);
-    const [metadata] = await bucketFile.getMetadata();
-
-    res.setHeader('Content-Disposition', `attachment; filename="${fileData.filename}"`);
-    res.setHeader('Content-Type', metadata.contentType || 'application/octet-stream');
-    if (metadata.size) {
-      res.setHeader('Content-Length', metadata.size);
+    try {
+      const nodeResponse = await openNodeStream('streaming', `/streams/${fileId}`);
+      nodeResponse.headers.forEach((value, key) => {
+        res.setHeader(key, value);
+      });
+      if (!nodeResponse.body) {
+        throw new Error('Streaming node returned empty body');
+      }
+      const readable = Readable.fromWeb(nodeResponse.body as unknown as NodeReadableStream);
+      readable.pipe(res);
+    } catch (error) {
+      if (error instanceof NodeUnavailableError) {
+        return res
+          .status(HttpErrorStatusCodes.SERVICE_UNAVAILABLE)
+          .send({ message: 'Streaming service unavailable.' });
+      }
+      console.error('Error proxying stream:', error);
+      return res
+        .status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR)
+        .send({ message: 'Unable to stream file' });
     }
-
-    bucketFile.createReadStream().pipe(res);
-
   } catch (error) {
     console.error('Error downloading file:', error);
     res.status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR).send({ message: 'Internal Server Error' });
@@ -198,24 +207,40 @@ mediaRouter.post('/:fileId/convert', async (req, res) => {
       return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({ message: 'Only audio files can be converted using this endpoint.' });
     }
 
-    const convertedFile = await convertAudioFile({
-      fileId,
-      mediaFile: fileData,
-      ownerId: currentUserId,
-      ownerUsername: currentUsername,
-      options: {
-        targetFormat: normalizedFormat as AudioConversionOptions['targetFormat'],
-        bitrateKbps: parsedBitrate,
-        quality: parsedQuality,
-      },
-    });
+    try {
+      const response = await callNodeService<{ file: MediaFile }>('conversion', {
+        path: '/tasks/convert/audio',
+        body: {
+          fileId,
+          user: {
+            id: currentUserId,
+            username: currentUsername,
+          },
+          options: {
+            targetFormat: normalizedFormat,
+            bitrateKbps: parsedBitrate,
+            quality: parsedQuality,
+          },
+        },
+      });
 
-    return res.status(HttpSuccessStatusCodes.CREATED).send({
-      message: 'File converted successfully.',
-      file: convertedFile,
-    });
+      return res.status(HttpSuccessStatusCodes.CREATED).send({
+        message: 'File converted successfully.',
+        file: response.file,
+      });
+    } catch (error) {
+      if (error instanceof NodeUnavailableError) {
+        return res
+          .status(HttpErrorStatusCodes.SERVICE_UNAVAILABLE)
+          .send({ message: 'Conversion service unavailable.' });
+      }
+      console.error('Error converting audio file:', error);
+      return res
+        .status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR)
+        .send({ message: 'Internal Server Error' });
+    }
   } catch (error) {
-    console.error('Error converting audio file:', error);
+    console.error('Error validating audio conversion:', error);
     return res.status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR).send({ message: 'Internal Server Error' });
   }
 });
@@ -292,25 +317,41 @@ mediaRouter.post('/:fileId/convert/video', async (req, res) => {
       return res.status(HttpErrorStatusCodes.BAD_REQUEST).send({ message: 'Only video files can be converted using this endpoint.' });
     }
 
-    const convertedFile = await convertVideoFile({
-      fileId,
-      mediaFile: fileData,
-      ownerId: currentUserId,
-      ownerUsername: currentUsername,
-      options: {
-        targetFormat: normalizedFormat as VideoConversionOptions['targetFormat'],
-        videoBitrateKbps: parsedBitrate,
-        maxWidth: parsedMaxWidth,
-        maxHeight: parsedMaxHeight,
-      },
-    });
+    try {
+      const response = await callNodeService<{ file: MediaFile }>('conversion', {
+        path: '/tasks/convert/video',
+        body: {
+          fileId,
+          user: {
+            id: currentUserId,
+            username: currentUsername,
+          },
+          options: {
+            targetFormat: normalizedFormat,
+            bitrateKbps: parsedBitrate,
+            maxWidth: parsedMaxWidth,
+            maxHeight: parsedMaxHeight,
+          },
+        },
+      });
 
-    return res.status(HttpSuccessStatusCodes.CREATED).send({
-      message: 'Video converted successfully.',
-      file: convertedFile,
-    });
+      return res.status(HttpSuccessStatusCodes.CREATED).send({
+        message: 'Video converted successfully.',
+        file: response.file,
+      });
+    } catch (error) {
+      if (error instanceof NodeUnavailableError) {
+        return res
+          .status(HttpErrorStatusCodes.SERVICE_UNAVAILABLE)
+          .send({ message: 'Conversion service unavailable.' });
+      }
+      console.error('Error converting video file:', error);
+      return res
+        .status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR)
+        .send({ message: 'Internal Server Error' });
+    }
   } catch (error) {
-    console.error('Error converting video file:', error);
+    console.error('Error validating video conversion:', error);
     return res.status(HttpErrorStatusCodes.INTERNAL_SERVER_ERROR).send({ message: 'Internal Server Error' });
   }
 });

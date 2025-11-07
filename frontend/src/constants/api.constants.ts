@@ -19,6 +19,9 @@ export const API_CONFIG = {
       CONVERT: (fileId: string) => `/media/${fileId}/convert`,
       CONVERT_VIDEO: (fileId: string) => `/media/${fileId}/convert/video`,
     },
+    NODES: {
+      STATUS: '/nodes/status',
+    },
     HEALTH: '/health',
   },
 } as const;
