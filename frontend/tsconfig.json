@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",           // ✅ this enables the automatic JSX runtime
+    "types": ["react"],           // ✅ make sure React types are included
+    "moduleResolution": "node",
+    "module": "ESNext",
+    "target": "ESNext",
+    "strict": true
+  }
+}
