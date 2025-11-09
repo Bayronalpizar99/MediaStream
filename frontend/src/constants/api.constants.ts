@@ -18,6 +18,14 @@ export const API_CONFIG = {
       DOWNLOAD: (fileId: string) => `/media/${fileId}/download`,
       CONVERT: (fileId: string) => `/media/${fileId}/convert`,
       CONVERT_VIDEO: (fileId: string) => `/media/${fileId}/convert/video`,
+      LOCAL: {
+        BASE: '/media/local',
+        STREAM: (localId: string) => `/media/local/${localId}/stream`,
+        DELETE: (localId: string) => `/media/local/${localId}`,
+        UPLOAD: '/media/local/upload',
+        CONVERT_AUDIO: (localId: string) => `/media/local/${localId}/convert/audio`,
+        CONVERT_VIDEO: (localId: string) => `/media/local/${localId}/convert/video`,
+      },
     },
     NODES: {
       STATUS: '/nodes/status',
