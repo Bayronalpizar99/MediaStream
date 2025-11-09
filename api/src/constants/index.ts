@@ -39,6 +39,7 @@ import {
   SESSION_TIMEOUTS,
   SESSION_HEADERS
 } from './session.constants';
+import { LOCAL_MEDIA_CONFIG } from './localMedia.constants';
 import type { AudioFormat, VideoFormat } from './media.constants';
 import {
   AUDIO_FORMATS,
@@ -83,6 +84,7 @@ export {
   SESSION_STATUS,
   SESSION_TIMEOUTS,
   SESSION_HEADERS,
+  LOCAL_MEDIA_CONFIG,
   AUDIO_FORMATS,
   AUDIO_MIME_TYPES,
   AUDIO_CONVERSION_DEFAULTS,
