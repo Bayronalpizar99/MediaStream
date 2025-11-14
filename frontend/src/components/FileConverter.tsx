@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { mediaService } from "../services/mediaService";
+import { mediaService, type LocalMediaResponse } from "../services/mediaService";
 import {
   Card,
   CardContent,
@@ -30,15 +30,20 @@ import {
 
 type ConversionMode = "audio" | "video";
 
+type MediaSource = "cloud" | "local";
+
 type MediaFile = {
   id: string;
   filename: string;
-  storagePath: string;
+  storagePath?: string;
   contentType?: string;
   size?: number;
+  source: MediaSource;
+  mediaType?: ConversionMode;
+  available?: boolean;
   conversion?: {
     type?: ConversionMode;
-    sourceFileId: string;
+    sourceFileId?: string;
     targetFormat: string;
     bitrateKbps?: number;
     quality?: number;
@@ -87,6 +92,9 @@ const getFileExtension = (filename?: string | null) => {
 };
 
 const isAudioFile = (file: MediaFile) => {
+  if (file.mediaType === "audio") {
+    return true;
+  }
   if (file.contentType?.startsWith("audio/")) {
     return true;
   }
@@ -95,6 +103,9 @@ const isAudioFile = (file: MediaFile) => {
 };
 
 const isVideoFile = (file: MediaFile) => {
+  if (file.mediaType === "video") {
+    return true;
+  }
   if (file.contentType?.startsWith("video/")) {
     return true;
   }
@@ -119,18 +130,52 @@ export function FileConverter() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const audioFiles = useMemo(() => files.filter(isAudioFile), [files]);
-  const videoFiles = useMemo(() => files.filter(isVideoFile), [files]);
+  const audioFiles = useMemo(
+    () =>
+      files.filter(
+        (file) =>
+          isAudioFile(file) &&
+          (file.source !== "local" || file.available !== false),
+      ),
+    [files],
+  );
+  const videoFiles = useMemo(
+    () =>
+      files.filter(
+        (file) =>
+          isVideoFile(file) &&
+          (file.source !== "local" || file.available !== false),
+      ),
+    [files],
+  );
+
+  const mapLocalRecordToMediaFile = (record: LocalMediaResponse): MediaFile => ({
+    id: record.id,
+    filename: record.filename,
+    contentType: record.contentType,
+    size: record.size,
+    source: "local",
+    mediaType: record.mediaType,
+    available: record.available,
+  });
 
   const loadFiles = useCallback(async () => {
     try {
       setIsLoadingFiles(true);
       setErrorMessage(null);
-      const [myFiles, sharedFiles] = await Promise.all([
+      const [myFiles, sharedFiles, localFiles] = await Promise.all([
         mediaService.getMyFiles(),
         mediaService.getSharedWithMe(),
+        mediaService.getLocalFiles(),
       ]);
-      const allFiles = [...(myFiles || []), ...(sharedFiles || [])] as MediaFile[];
+      const remoteFiles = [...(myFiles || []), ...(sharedFiles || [])].map(
+        (file: MediaFile) => ({
+          ...file,
+          source: "cloud" as MediaSource,
+        }),
+      );
+      const localMapped = (localFiles || []).map(mapLocalRecordToMediaFile);
+      const allFiles = [...localMapped, ...remoteFiles];
       setFiles(allFiles);
       if (allFiles.length === 0) {
         setSelectedAudioFile(null);
@@ -212,6 +257,11 @@ export function FileConverter() {
       return;
     }
 
+    if (selectedFile.source === "local" && selectedFile.available === false) {
+      setErrorMessage("El archivo local seleccionado ya no está disponible.");
+      return;
+    }
+
     const entryId =
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
@@ -235,25 +285,54 @@ export function FileConverter() {
     setErrorMessage(null);
 
     try {
-      const response =
-        mode === "audio"
-          ? await mediaService.convertAudio(selectedFile.id, {
-              targetFormat,
-              bitrateKbps: audioBitrate,
-              quality: audioQuality,
-            })
-          : await mediaService.convertVideo(selectedFile.id, {
-              targetFormat,
-              bitrateKbps: videoBitrate,
-              maxWidth: videoMaxWidth,
-            });
+      let response: unknown;
+      if (selectedFile.source === "local") {
+        response =
+          mode === "audio"
+            ? await mediaService.convertLocalAudio(selectedFile.id, {
+                targetFormat,
+                bitrateKbps: audioBitrate,
+                quality: audioQuality,
+              })
+            : await mediaService.convertLocalVideo(selectedFile.id, {
+                targetFormat,
+                bitrateKbps: videoBitrate,
+                maxWidth: videoMaxWidth,
+              });
+      } else {
+        response =
+          mode === "audio"
+            ? await mediaService.convertAudio(selectedFile.id, {
+                targetFormat,
+                bitrateKbps: audioBitrate,
+                quality: audioQuality,
+              })
+            : await mediaService.convertVideo(selectedFile.id, {
+                targetFormat,
+                bitrateKbps: videoBitrate,
+                maxWidth: videoMaxWidth,
+              });
+      }
+
+      const responseFile = (response as { file?: unknown }).file;
+      const normalizedResult: MediaFile | undefined =
+        selectedFile.source === "local"
+          ? responseFile
+            ? mapLocalRecordToMediaFile(responseFile as LocalMediaResponse)
+            : undefined
+          : responseFile
+            ? ({
+                ...(responseFile as MediaFile),
+                source: "cloud" as MediaSource,
+              } as MediaFile)
+            : undefined;
 
       enqueueStatus(
         (entry) => ({
           ...entry,
           status: "completed",
           completedAt: new Date(),
-          resultFile: (response as { file?: MediaFile }).file,
+          resultFile: normalizedResult,
           message:
             (response as { message?: string }).message ??
             "Conversión completada",
@@ -288,7 +367,11 @@ export function FileConverter() {
     }
     setDownloadingId(file.id);
     try {
-      await mediaService.downloadFile(file.id, file.filename);
+      if (file.source === "local") {
+        await mediaService.downloadLocalFile(file.id, file.filename);
+      } else {
+        await mediaService.downloadFile(file.id, file.filename);
+      }
     } catch (error) {
       const message =
         error instanceof Error
